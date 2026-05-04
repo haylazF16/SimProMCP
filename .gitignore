@@ -14,3 +14,8 @@ dist/
 # Editor/OS scratch
 *.swp
 Thumbs.db
+
+# Server runtime files (HTTP mode) — hold secrets / PII, never commit.
+tokens.json
+audit.log
+*.audit.log

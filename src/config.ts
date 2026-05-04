@@ -42,6 +42,8 @@ const ConfigSchema = z.object({
   SIMPRO_HTTP_PORT: intFromString(3001, 1, 65535),
   // Path to tokens.json for per-user auth in HTTP mode.
   SIMPRO_TOKENS_FILE: z.string().default("./tokens.json"),
+  // Audit log (one JSON object per line) of every authenticated tool call.
+  SIMPRO_AUDIT_FILE: z.string().default("./audit.log"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
