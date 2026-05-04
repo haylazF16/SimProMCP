@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+.vscode/
+.idea/
+*.tmp
+
+# Claude Code local settings — contains command history that may include
+# tokens from `curl -H "Authorization: Bearer ..."` runs. Never commit.
+.claude/
+
+# Editor/OS scratch
+*.swp
+Thumbs.db

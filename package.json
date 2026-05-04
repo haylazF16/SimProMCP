@@ -1,0 +1,30 @@
+{
+  "name": "simpro-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local MCP server connecting Claude Desktop to Simpro CRM via the Simpro REST API.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "simpro-mcp-server": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^16.4.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3"
+  }
+}
