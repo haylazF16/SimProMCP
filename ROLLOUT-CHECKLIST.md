@@ -23,8 +23,13 @@ This creates the `dist/` folder containing the compiled JS.
 
 ### 2. Stage the share folder
 
-Create a clean folder somewhere shareable, e.g.
-`OneDrive - Goldman Plumbing Services\IT\simpro-mcp-server-release\`.
+Goldman's SharePoint folder is:
+
+```
+C:\Users\<YOU>\GoldmanPlumbing\Goldman Plumbing Services\Energy - Documents\IT\SimProMCP
+```
+
+(synced via OneDrive on every coworker's PC)
 
 Copy **only these items** into it:
 

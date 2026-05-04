@@ -7,6 +7,22 @@ Simpro tool. **No coding, no installations.** About 5 minutes total.
 > If you need to use the tool from home without VPN, ask IT for the
 > alternative individual setup instead.
 
+## Architecture (one diagram)
+
+```
+┌─────────────┐    HTTP    ┌──────────────────┐   HTTPS    ┌──────────────┐
+│  Your PC    │ ─────────▶ │  Office Server   │ ─────────▶ │ Simpro Cloud │
+│  Claude     │   (LAN)    │ 192.168.88.113   │ uses YOUR  │ goldman      │
+│  Desktop    │  port 3001 │ tokens.json      │ Simpro key │ plumbing     │
+│  + smcp_*   │            │ audit.log        │            │ services     │
+│   token     │            │                  │            │ .simprosuite │
+└─────────────┘            └──────────────────┘            └──────────────┘
+```
+
+Your Claude Desktop talks to the office server. The office server uses
+**your** Simpro API key when calling Simpro, so Simpro's audit log shows
+**your** name on every action.
+
 ---
 
 ## Part 1 — Get your own Simpro API key
@@ -39,8 +55,8 @@ In a direct message (not a group chat), send IT:
 
 IT will reply with three things:
 
-- **Plumbing URL** — looks like `http://<server-ip>:3001/mcp/plumbing`
-- **Energy URL** — looks like `http://<server-ip>:3001/mcp/energy`
+- **Plumbing URL** — looks like `http://192.168.88.113:3001/mcp/plumbing`
+- **Energy URL** — looks like `http://192.168.88.113:3001/mcp/energy`
 - **Your personal access token** — a long random string starting with
   `smcp_...`
 
@@ -59,9 +75,6 @@ IT will reply with three things:
    **Settings**.
 3. Click **Connectors** in the left sidebar.
 4. Scroll down to **Add custom connector**.
-
-   📷 *Screenshot here: Claude Desktop Settings → Connectors → Add custom connector button.*
-
 5. Fill in **the first connector** (for Plumbing):
    - **Name:** `Goldman Plumbing`
    - **Remote MCP server URL:** the **Plumbing URL** IT sent you

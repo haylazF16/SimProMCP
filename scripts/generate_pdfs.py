@@ -1,11 +1,13 @@
 """
 Generate two coworker-facing PDF instruction documents:
   1. Goldman-Simpro-LAN-Setup.pdf       (~3 pages, post-server connect)
-  2. Goldman-Simpro-Individual-Setup.pdf (~6 pages, standalone fallback)
+  2. Goldman-Simpro-Individual-Setup.pdf (~5-6 pages, standalone fallback)
 
-Avoids emojis / em-dashes / Unicode that reportlab default fonts can't render.
-Screenshot placeholders are clearly labeled gray boxes — Tayfun pastes real
-screenshots into them later (or I can add real ones once I have access).
+This version (final):
+  - Concrete URLs and SharePoint path baked in (no placeholders).
+  - No screenshot placeholders. Replaced with vector flow diagrams drawn
+    with reportlab's graphics primitives.
+  - Pure ASCII output (no em-dashes, no fancy quotes).
 """
 import os
 from reportlab.lib import colors
@@ -14,11 +16,24 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm, mm
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, PageBreak, Table, TableStyle,
-    KeepTogether, ListFlowable, ListItem,
 )
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.lib.enums import TA_CENTER
+from reportlab.graphics.shapes import Drawing, Rect, String, Line, Polygon
+from reportlab.graphics import renderPDF
 
-OUTDIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# --------- BAKED-IN GOLDMAN VALUES (final) ---------
+SERVER_IP = "192.168.88.113"
+SERVER_PORT = "3001"
+PLUMBING_URL = f"http://{SERVER_IP}:{SERVER_PORT}/mcp/plumbing"
+ENERGY_URL   = f"http://{SERVER_IP}:{SERVER_PORT}/mcp/energy"
+SIMPRO_BASE  = "https://goldmanplumbingservices.simprosuite.com"
+SHAREPOINT_FOLDER = (
+    r"C:\Users\<YOU>\GoldmanPlumbing\Goldman Plumbing Services"
+    r"\Energy - Documents\IT\SimProMCP"
+)
+
+OUTDIR = os.environ.get("PDF_OUT_DIR") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+os.makedirs(OUTDIR, exist_ok=True)
 
 # ---------- Styles ----------
 styles = getSampleStyleSheet()
@@ -57,14 +72,14 @@ styles.add(ParagraphStyle(
     textColor=colors.HexColor("#333333"),
 ))
 styles.add(ParagraphStyle(
-    name="ScreenshotLabel", parent=styles["Normal"], fontSize=9, leading=12,
+    name="DiagCaption", parent=styles["Normal"], fontSize=9, leading=12,
     alignment=TA_CENTER, textColor=colors.HexColor("#666666"), italic=True,
+    spaceBefore=4, spaceAfter=10,
 ))
 
 
 # ---------- Helpers ----------
 def callout(text, kind="info"):
-    """Coloured boxed note. kind: 'warning' (red), 'safe' (green), 'info' (blue)."""
     palette = {
         "warning": ("#fff3f3", "#c0392b", "WARNING"),
         "safe":    ("#f1faf1", "#2c8a3a", "SAFETY"),
@@ -85,33 +100,13 @@ def callout(text, kind="info"):
     return t
 
 
-def screenshot_placeholder(label, height_cm=4.5):
-    """Gray box where a screenshot will be pasted in later."""
-    inner = Paragraph(
-        f"[ Screenshot placeholder ]<br/><br/><b>{label}</b><br/>"
-        f"<font size=8>(Tayfun: paste real screenshot here. "
-        f"Right-click box in your PDF editor and replace.)</font>",
-        styles["ScreenshotLabel"],
-    )
-    t = Table([[inner]], colWidths=[16.0 * cm], rowHeights=[height_cm * cm])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f0f0f0")),
-        ("BOX",        (0, 0), (-1, -1), 1.2, colors.HexColor("#999999")),
-        ("VALIGN",     (0, 0), (-1, -1), "MIDDLE"),
-    ]))
-    return t
-
-
 def step(number, body):
     return Paragraph(f"<b>{number}.</b> &nbsp;{body}", styles["StepNum"])
 
 
 def trouble_table(rows):
-    """rows: list of (problem, fix). Header included."""
     data = [["Problem", "Fix"]] + rows
-    cell_style = ParagraphStyle(
-        name="tcell", parent=styles["Normal"], fontSize=9.5, leading=13,
-    )
+    cell_style = ParagraphStyle(name="tcell", parent=styles["Normal"], fontSize=9.5, leading=13)
     data = [[Paragraph(c, cell_style) for c in r] for r in data]
     t = Table(data, colWidths=[6.5 * cm, 9.5 * cm])
     t.setStyle(TableStyle([
@@ -130,9 +125,101 @@ def trouble_table(rows):
     return t
 
 
+# ---------- Flow diagrams ----------
+def _box(d, x, y, w, h, title, lines, fill="#eef4fb", stroke="#1b5e9c"):
+    """Draw a labelled rectangle with title + small detail lines."""
+    d.add(Rect(x, y, w, h, fillColor=colors.HexColor(fill),
+               strokeColor=colors.HexColor(stroke), strokeWidth=1.2, rx=4, ry=4))
+    d.add(String(x + w / 2, y + h - 18, title,
+                 fontName="Helvetica-Bold", fontSize=10,
+                 fillColor=colors.HexColor("#0f4c75"), textAnchor="middle"))
+    for i, ln in enumerate(lines):
+        d.add(String(x + w / 2, y + h - 36 - i * 12, ln,
+                     fontName="Helvetica", fontSize=8.5,
+                     fillColor=colors.HexColor("#333333"), textAnchor="middle"))
+
+
+def _arrow(d, x1, y, x2, label_top=None, label_bot=None,
+           color="#0f4c75"):
+    """Horizontal arrow x1 -> x2 at vertical pos y, with optional labels."""
+    d.add(Line(x1, y, x2 - 8, y, strokeColor=colors.HexColor(color), strokeWidth=1.4))
+    # Arrow head
+    d.add(Polygon([x2, y, x2 - 8, y - 4, x2 - 8, y + 4],
+                  fillColor=colors.HexColor(color),
+                  strokeColor=colors.HexColor(color)))
+    if label_top:
+        d.add(String((x1 + x2) / 2, y + 6, label_top,
+                     fontName="Helvetica-Bold", fontSize=8.5,
+                     fillColor=colors.HexColor(color), textAnchor="middle"))
+    if label_bot:
+        d.add(String((x1 + x2) / 2, y - 14, label_bot,
+                     fontName="Helvetica-Oblique", fontSize=7.5,
+                     fillColor=colors.HexColor("#666666"), textAnchor="middle"))
+
+
+def lan_flow_diagram():
+    """Flow for the LAN setup PDF."""
+    d = Drawing(450, 170)
+    bw, bh = 130, 105
+    y = 30
+    # Box 1: Coworker PC
+    _box(d, 0, y, bw, bh,
+         "Your PC",
+         ["Claude Desktop",
+          "Custom Connector",
+          "+ smcp_* token"],
+         fill="#eef4fb", stroke="#1b5e9c")
+    # Box 2: Office server
+    _box(d, 160, y, bw, bh,
+         "Office Server",
+         ["simpro-mcp-server",
+          "tokens.json",
+          "audit.log",
+          f"{SERVER_IP}:{SERVER_PORT}"],
+         fill="#fffbe6", stroke="#a37b00")
+    # Box 3: Simpro
+    _box(d, 320, y, bw, bh,
+         "Simpro Cloud",
+         [SIMPRO_BASE.replace("https://", ""),
+          "audit log shows",
+          "real employee"],
+         fill="#f1faf1", stroke="#2c8a3a")
+    # Arrows
+    _arrow(d, bw, y + bh / 2, 160, "HTTP (LAN)",
+           f"port {SERVER_PORT}")
+    _arrow(d, bw + 160, y + bh / 2, 320, "HTTPS",
+           "uses YOUR Simpro key")
+    return d
+
+
+def individual_flow_diagram():
+    """Flow for the individual-setup PDF (Plan B)."""
+    d = Drawing(450, 170)
+    bw, bh = 200, 105
+    y = 30
+    # Box 1: Your PC (subprocess + Claude Desktop together)
+    _box(d, 0, y, bw, bh,
+         "Your PC",
+         ["Claude Desktop launches",
+          "the Simpro tool locally",
+          "via STDIO subprocess",
+          "(your Simpro key in config)"],
+         fill="#eef4fb", stroke="#1b5e9c")
+    # Box 2: Simpro
+    _box(d, 250, y, bw, bh,
+         "Simpro Cloud",
+         [SIMPRO_BASE.replace("https://", ""),
+          "audit log shows",
+          "your name"],
+         fill="#f1faf1", stroke="#2c8a3a")
+    _arrow(d, bw, y + bh / 2, 250, "HTTPS",
+           "uses YOUR Simpro key")
+    return d
+
+
+# ---------- Page chrome ----------
 def header_footer(canvas, doc, doc_title):
     canvas.saveState()
-    # Header
     canvas.setFont("Helvetica-Bold", 9)
     canvas.setFillColor(colors.HexColor("#0f4c75"))
     canvas.drawString(2 * cm, A4[1] - 1.2 * cm, "Goldman Plumbing Services")
@@ -142,7 +229,6 @@ def header_footer(canvas, doc, doc_title):
     canvas.setStrokeColor(colors.HexColor("#dddddd"))
     canvas.setLineWidth(0.4)
     canvas.line(2 * cm, A4[1] - 1.4 * cm, A4[0] - 2 * cm, A4[1] - 1.4 * cm)
-    # Footer
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(colors.HexColor("#888888"))
     canvas.drawString(2 * cm, 1.2 * cm, "Internal use only. Never share your Simpro API key.")
@@ -161,133 +247,131 @@ def build_lan_pdf():
         topMargin=2 * cm, bottomMargin=2 * cm,
         title="Goldman Simpro LAN Setup", author="Goldman Plumbing IT",
     )
-    title = "Connecting to the Office Simpro AI Tool"
     s = []
-    s.append(Paragraph(title, styles["DocTitle"]))
+    s.append(Paragraph("Connecting to the Office Simpro AI Tool", styles["DocTitle"]))
     s.append(Paragraph("LAN Setup Guide for Coworkers (5 minutes)", styles["DocSubtitle"]))
 
-    s.append(Paragraph("What this is", styles["H1"]))
+    # Architecture diagram
+    s.append(Paragraph("How it works", styles["H1"]))
+    s.append(lan_flow_diagram())
     s.append(Paragraph(
-        "We have set up an AI tool that lets you read and update Simpro data "
-        "by chatting with Claude on your computer. This guide is for connecting "
-        "to the version that runs on the office server. You do not need to "
-        "install anything technical on your PC.",
-        styles["Body"]))
+        "Your Claude Desktop talks to the office server, the office server talks to Simpro using YOUR Simpro key. "
+        "Simpro's audit log records you as the person who did each action.",
+        styles["DiagCaption"]))
 
     s.append(Paragraph("Before you start", styles["H1"]))
-    s.append(Paragraph("You need three things:", styles["Body"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; <b>Claude Desktop</b> installed on your PC. Free or Pro plan, both work.", styles["Body"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; <b>Your own Simpro API key</b> (instructions in Part 1).", styles["Body"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; <b>The connection details from IT</b> (Part 2): a URL and a personal access token.", styles["Body"]))
-    s.append(Spacer(1, 6))
-    s.append(callout(
-        "Connect to the office Wi-Fi or VPN before testing. The Simpro tool only "
-        "works while you are on the Goldman network.",
-        kind="info"))
+    s.append(Paragraph("&nbsp;&nbsp;&bull; <b>Claude Desktop</b> installed on your PC.", styles["Body"]))
+    s.append(Paragraph("&nbsp;&nbsp;&bull; <b>Claude Pro / Team / Enterprise plan</b> (Custom Connectors require a paid plan). "
+                       "If your plan does not show Custom Connectors, ask IT for the alternative individual setup.", styles["Body"]))
+    s.append(Paragraph("&nbsp;&nbsp;&bull; <b>Office Wi-Fi or VPN</b> connected. The server is only reachable on the Goldman network.", styles["Body"]))
 
     # ---- Part 1 ----
-    s.append(Paragraph("Part 1 - Get your own Simpro API key", styles["H1"]))
+    s.append(Paragraph("Part 1 - Create your own Simpro API key", styles["H1"]))
     s.append(Paragraph("Each person uses their own key so audit logs in Simpro show who did what.", styles["Body"]))
-    s.append(step(1, "Log into Simpro at <b>https://goldmanplumbingservices.simprosuite.com</b>"))
+    s.append(step(1, f"Log into Simpro at <b>{SIMPRO_BASE}</b>"))
     s.append(step(2, "Click the gear icon (top right) -&gt; <b>System</b> -&gt; <b>Setup</b> -&gt; <b>API Keys</b>"))
-    s.append(screenshot_placeholder("Simpro: System menu showing API Keys location", 4.0))
-    s.append(step(3, "Click <b>Add</b>. Name it after yourself, e.g. <i>Jane Smith - Claude Desktop</i>"))
-    s.append(step(4, "Set the linked employee to <b>your own employee record</b> in Simpro"))
-    s.append(step(5, "Start with <b>read-only</b> permissions. You can add edit later."))
-    s.append(step(6, "Click <b>Save</b>. Simpro will show the access token. <b>COPY IT IMMEDIATELY</b> "
-                     "into a private note - Simpro shows it only once."))
-    s.append(screenshot_placeholder("Simpro: API Key created, access token visible", 4.0))
+    s.append(step(3, "Click <b>Add</b>. Name it after yourself, e.g. <i>Jane Smith - Claude Desktop</i>."))
+    s.append(step(4, "Set the linked employee to <b>your own employee record</b>."))
+    s.append(step(5, "Start with <b>read-only</b> permissions. IT can grant edit later."))
+    s.append(step(6, "Click <b>Save</b>. Simpro shows the access token. <b>COPY IT NOW</b> into a private note. "
+                     "Simpro shows it only once."))
     s.append(callout(
-        "Treat the access token like your password. Never email it, paste it in chat, "
-        "or share it. If it leaks, log into Simpro and delete it.",
+        "Treat the access token like your password. Never email it, never paste it in group chat, "
+        "never include it in screenshots. Send it only to IT (Tayfun / Sinan), and only via direct message.",
         kind="warning"))
 
     # ---- Part 2 ----
     s.append(PageBreak())
-    s.append(Paragraph("Part 2 - Get connection details from IT", styles["H1"]))
+    s.append(Paragraph("Part 2 - Send your Simpro API key to IT", styles["H1"]))
     s.append(Paragraph(
-        "Send your Simpro API key (from Part 1) to IT. IT will reply with two things:",
+        "In a direct message (not a group chat) to IT, send:",
         styles["Body"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; <b>Connector URL</b> - looks like <font face='Courier'>http://goldman-server.local:3001/mcp</font>", styles["Body"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; <b>Your personal access token</b> - a long random string IT generates for you (different from your Simpro key)", styles["Body"]))
+    s.append(Paragraph(
+        "<i>Hi, here is my Simpro API key for the Claude tool: &lt;paste token here&gt;.<br/>"
+        "I work in: Plumbing only / Energy only / both</i>",
+        styles["MyCode"]))
+    s.append(Paragraph(
+        "IT will reply with a personal access token starting with <b>smcp_</b>. The two URLs you need are:",
+        styles["Body"]))
+    s.append(Paragraph(
+        f"<b>Plumbing URL:</b> &nbsp;<font face='Courier'>{PLUMBING_URL}</font><br/>"
+        f"<b>Energy URL:</b> &nbsp;&nbsp;&nbsp;&nbsp;<font face='Courier'>{ENERGY_URL}</font>",
+        styles["Body"]))
     s.append(callout(
-        "Why two tokens? Your Simpro API key stays on the office server (IT registers it for you). "
-        "Your personal access token is what your Claude Desktop sends to prove it is really you. "
-        "If you change PCs or lose access, IT just regenerates the personal token without touching Simpro.",
+        "Why two tokens? Your <b>Simpro API key</b> stays on the office server (IT registers it for you). "
+        "Your <b>personal access token</b> (the smcp_ one) is what your Claude Desktop sends to prove it is "
+        "really you. If you change PCs, IT just gives you a new personal token without touching Simpro.",
         kind="info"))
 
     # ---- Part 3 ----
-    s.append(Paragraph("Part 3 - Add the connector to Claude Desktop", styles["H1"]))
-    s.append(step(1, "Open <b>Claude Desktop</b> on your PC."))
-    s.append(step(2, "Click your profile icon (bottom left) -&gt; <b>Settings</b>."))
-    s.append(step(3, "Click <b>Connectors</b> in the left sidebar."))
-    s.append(step(4, "Scroll down and click <b>Add custom connector</b>."))
-    s.append(screenshot_placeholder("Claude Desktop: Settings -> Connectors -> Add custom connector button", 4.5))
-    s.append(step(5, "Fill in:"))
-    s.append(Paragraph("&nbsp;&nbsp;&nbsp;&nbsp;&bull; <b>Name:</b> Goldman Simpro", styles["StepNum"]))
-    s.append(Paragraph("&nbsp;&nbsp;&nbsp;&nbsp;&bull; <b>Remote MCP server URL:</b> the URL IT sent you", styles["StepNum"]))
-    s.append(Paragraph("&nbsp;&nbsp;&nbsp;&nbsp;&bull; <b>Authentication:</b> choose <b>Bearer token</b> and paste the personal access token from IT", styles["StepNum"]))
-    s.append(step(6, "Click <b>Add</b>. Claude Desktop should say it connected successfully."))
-    s.append(screenshot_placeholder("Claude Desktop: Custom connector form filled out, before clicking Add", 5.0))
-    s.append(callout(
-        "Custom Connectors require Claude Pro, Team, or Enterprise plan. "
-        "If your plan does not show this option, ask IT for the alternative individual setup "
-        "(Plan B) instead.",
-        kind="info"))
+    s.append(Paragraph("Part 3 - Add the connectors to Claude Desktop", styles["H1"]))
+    s.append(step(1, "Open <b>Claude Desktop</b>."))
+    s.append(step(2, "Click your profile icon (bottom-left) -&gt; <b>Settings</b>."))
+    s.append(step(3, "Click <b>Connectors</b> in the left sidebar -&gt; scroll to <b>Add custom connector</b>."))
+    s.append(step(4, "Add the FIRST connector for Plumbing:"))
+    s.append(Paragraph(
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&bull; <b>Name:</b> Goldman Plumbing<br/>"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&bull; <b>Remote MCP server URL:</b> <font face='Courier'>{PLUMBING_URL}</font><br/>"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&bull; <b>Authentication:</b> Bearer token = the smcp_ token IT sent you<br/>"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&bull; Click <b>Add</b>.",
+        styles["StepNum"]))
+    s.append(step(5, "Add the SECOND connector for Energy (only if you work in Energy too):"))
+    s.append(Paragraph(
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&bull; <b>Name:</b> Goldman Energy<br/>"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&bull; <b>Remote MCP server URL:</b> <font face='Courier'>{ENERGY_URL}</font><br/>"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&bull; <b>Authentication:</b> Bearer token = the same smcp_ token<br/>"
+        f"&nbsp;&nbsp;&nbsp;&nbsp;&bull; Click <b>Add</b>.",
+        styles["StepNum"]))
 
     # ---- Part 4 ----
     s.append(Paragraph("Part 4 - Test it", styles["H1"]))
     s.append(Paragraph("In Claude Desktop, type:", styles["Body"]))
-    s.append(Paragraph(
-        "<font face='Courier'>Use Simpro Plumbing to test the connection.</font>",
-        styles["MyCode"]))
+    s.append(Paragraph("<font face='Courier'>Use Simpro Plumbing to test the connection.</font>", styles["MyCode"]))
     s.append(Paragraph("You should see something like:", styles["Body"]))
     s.append(Paragraph(
-        '"Simpro connection OK. Base URL: https://goldmanplumbingservices.simprosuite.com, '
-        "Company ID: 4...\"",
+        '<i>"Simpro connection OK. Base URL: ' + SIMPRO_BASE + ', Company ID: 4 ..."</i>',
         styles["Body"]))
-    s.append(Paragraph("If you see this - <b>everything works</b>. Try other prompts:", styles["Body"]))
+    s.append(Paragraph("Then try the other one (if you added it):", styles["Body"]))
+    s.append(Paragraph("<font face='Courier'>Use Simpro Energy to test the connection.</font>", styles["MyCode"]))
+    s.append(Paragraph("Should report <b>Company ID: 37</b>. If both work - you are set.", styles["Body"]))
+
+    s.append(Paragraph("More things to try", styles["H2"]))
     s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Plumbing to find customers named Goldman.</i>", styles["Body"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Plumbing to find recent jobs.</i>", styles["Body"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Energy to test the connection.</i> (if you also need Goldman Energy)", styles["Body"]))
+    s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Plumbing to show the 5 most recent jobs.</i>", styles["Body"]))
+    s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Plumbing to list line items for purchase order [number].</i>", styles["Body"]))
+    s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Energy to find supplier invoices from Reece in May 2026.</i>", styles["Body"]))
 
     # ---- Safety ----
     s.append(Paragraph("Safety - what is on and off by default", styles["H1"]))
-    s.append(Paragraph(
-        "When you connect for the first time, Claude can <b>read</b> Simpro data (search, view) "
-        "but cannot <b>change</b> anything. This is on purpose.",
-        styles["Body"]))
     s.append(callout(
-        "Writes (create, update) are off by default. To enable them later, ask IT - "
-        "they will turn it on for your token. Even then, every write requires you to "
-        "say 'confirm true' and Claude will show you what it is about to do before sending.",
+        "Writes (create / update) are off by default. Claude can read your Simpro data but cannot change anything. "
+        "When you are ready, ask IT to enable writes for your token. Even then, every write requires you to say "
+        "'confirm true' and Claude will show you exactly what it will do before doing it.",
         kind="safe"))
 
     # ---- Troubleshooting ----
     s.append(PageBreak())
     s.append(Paragraph("Common problems and fixes", styles["H1"]))
     s.append(trouble_table([
-        ("Claude Desktop does not show the Goldman Simpro connector",
-         "Restart Claude Desktop completely - right-click the icon in the system tray "
-         "(near the clock, bottom right) and click <b>Quit</b>. Wait 3 seconds, reopen."),
-        ("Connector says 'connection failed' or 'cannot reach server'",
-         "Check you are on the office Wi-Fi or VPN. The server is only reachable inside Goldman's network."),
-        ("Connector says 'unauthorized' or '401'",
-         "Your personal access token is wrong, expired, or has been revoked. Ask IT to regenerate it."),
-        ("'Vendor order not found' or 'Customer not found' errors",
-         "You are probably searching the wrong company. The tenant has Plumbing (default) and Energy. "
-         "Try saying <i>'Use Simpro Energy to...'</i> for Energy records."),
+        ("Claude Desktop does not show 'Add custom connector'",
+         "Your Claude plan likely does not support Custom Connectors. Ask IT for the individual setup (Plan B)."),
+        ("'Connection failed' or 'cannot reach server'",
+         f"Check you are on office Wi-Fi or VPN. Try opening <font face='Courier'>http://{SERVER_IP}:{SERVER_PORT}/healthz</font> in your browser - "
+         "you should see a small JSON response. If not, the server is down - tell IT."),
+        ("'401 Unauthorized'",
+         "Your personal access token is wrong, expired, or revoked. Ask IT to regenerate it."),
+        ("'403 Forbidden' or 'does not have access to energy'",
+         "Your token only allows one company. Ask IT to grant access to both."),
         ("Claude finds zero quotes for a customer that clearly has quotes",
-         "Claude searched the wrong field. Phrase it as: <i>'Use Simpro to find quotes for customer "
-         "[name]'</i> rather than putting the name as a keyword."),
-        ("Anything else", "Send IT a screenshot of the error. Never include your access token in the screenshot."),
+         "Phrase the request as <i>'find quotes <b>for</b> customer X'</i> rather than putting the name as a keyword."),
+        ("Anything else",
+         "Send IT a screenshot. <b>Never include your access token in the screenshot</b> - blur it first."),
     ]))
 
     s.append(Paragraph("If anything is unclear", styles["H1"]))
     s.append(Paragraph(
-        "Contact IT (currently Tayfun / Sinan). Send a screenshot of what you tried and what "
-        "Claude said. <b>Never include your Simpro API key or personal access token</b> in the screenshot - "
-        "blur it or crop it out first.",
+        "Contact IT (currently <b>Tayfun / Sinan</b>). Tell them which step you got stuck on, "
+        "the exact error, and your Windows version. <b>Never include your tokens</b> in screenshots - blur or crop first.",
         styles["Body"]))
 
     doc.build(s, onFirstPage=lambda c, d: header_footer(c, d, "LAN Setup Guide"),
@@ -296,7 +380,7 @@ def build_lan_pdf():
 
 
 # =============================================================================
-# DOC 2: INDIVIDUAL PC SETUP
+# DOC 2: INDIVIDUAL PC SETUP (Plan B)
 # =============================================================================
 def build_individual_pdf():
     out = os.path.join(OUTDIR, "Goldman-Simpro-Individual-Setup.pdf")
@@ -308,168 +392,159 @@ def build_individual_pdf():
     )
     s = []
     s.append(Paragraph("Goldman Simpro AI Tool", styles["DocTitle"]))
-    s.append(Paragraph("Individual PC Setup Guide (15-20 minutes)", styles["DocSubtitle"]))
+    s.append(Paragraph("Individual PC Setup Guide (Plan B, ~15 minutes)", styles["DocSubtitle"]))
 
-    s.append(Paragraph("What this is", styles["H1"]))
+    # Architecture
+    s.append(Paragraph("How it works", styles["H1"]))
+    s.append(individual_flow_diagram())
     s.append(Paragraph(
-        "This guide installs the Goldman Simpro AI tool directly on your PC. Use this "
-        "guide if the office server version is unavailable, or if you need to work "
-        "from outside the office without VPN.",
-        styles["Body"]))
-    s.append(callout(
-        "If you have access to the office LAN setup (your IT person sent you a connector URL "
-        "and token), use that instead - it is much simpler. Use this guide only as a fallback "
-        "or if you specifically need to work offline.",
-        kind="info"))
+        "The Simpro tool runs locally on your PC. Claude Desktop launches it as a small background process. "
+        "It uses YOUR Simpro API key directly - no office server in between.",
+        styles["DiagCaption"]))
 
-    s.append(Paragraph("Time and prerequisites", styles["H1"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; About 15-20 minutes the first time.", styles["Body"]))
+    s.append(Paragraph("When to use this guide", styles["H1"]))
+    s.append(Paragraph(
+        "Use this only if the office server version is unavailable, or if you do not have Claude Pro/Team/Enterprise. "
+        "Otherwise the LAN setup is much simpler - 5 minutes, no installation.",
+        styles["Body"]))
+
+    s.append(Paragraph("What you need", styles["H1"]))
     s.append(Paragraph("&nbsp;&nbsp;&bull; Windows 10 or 11.", styles["Body"]))
     s.append(Paragraph("&nbsp;&nbsp;&bull; Claude Desktop installed (free plan is fine).", styles["Body"]))
     s.append(Paragraph("&nbsp;&nbsp;&bull; Permission to install Node.js (you may need to ask IT).", styles["Body"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; The shared installer folder from IT.", styles["Body"]))
+    s.append(Paragraph("&nbsp;&nbsp;&bull; About 15 minutes.", styles["Body"]))
 
-    # ---- Part 1: API key ----
+    # ---- Part 1 ----
     s.append(Paragraph("Part 1 - Create your own Simpro API key", styles["H1"]))
-    s.append(Paragraph(
-        "Each person uses their own key so audit logs in Simpro show who did what. "
-        "Never share keys. If you leave Goldman, IT just deletes your key.",
-        styles["Body"]))
-    s.append(step(1, "Log into Simpro at <b>https://goldmanplumbingservices.simprosuite.com</b>"))
+    s.append(step(1, f"Log into Simpro at <b>{SIMPRO_BASE}</b>"))
     s.append(step(2, "Click the gear icon (top right) -&gt; <b>System</b> -&gt; <b>Setup</b> -&gt; <b>API Keys</b>"))
-    s.append(screenshot_placeholder("Simpro: API Keys page location in System menu", 4.0))
-    s.append(step(3, "Click <b>Add</b>, name the key after yourself (e.g. <i>Jane Smith - Claude Desktop</i>)."))
-    s.append(step(4, "Set the linked employee to your own employee record."))
-    s.append(step(5, "Start with read-only permissions for the first week."))
-    s.append(step(6, "Click <b>Save</b>. Simpro shows the access token. <b>COPY IT NOW</b> "
-                     "into a private note - it is only shown once."))
+    s.append(step(3, "Click <b>Add</b>, name the key after yourself, link to your own employee record."))
+    s.append(step(4, "Start with read-only permissions for the first week."))
+    s.append(step(5, "Click <b>Save</b>. <b>COPY THE ACCESS TOKEN NOW</b> - it is shown only once."))
     s.append(callout(
-        "Treat the access token like your password. Never share it, never email it, "
-        "never paste it in chat. If it leaks, delete it in Simpro and create a new one.",
+        "Treat the access token like your password. Never share, email, or screenshot it. "
+        "If it leaks, log into Simpro and delete the key.",
         kind="warning"))
 
-    # ---- Part 2: Node.js ----
-    s.append(PageBreak())
-    s.append(Paragraph("Part 2 - Install Node.js", styles["H1"]))
-    s.append(Paragraph("This is the engine that runs the Simpro tool. One-time install.", styles["Body"]))
+    # ---- Part 2 ----
+    s.append(Paragraph("Part 2 - Install Node.js (one-time)", styles["H1"]))
     s.append(step(1, "Open <b>https://nodejs.org</b> in your browser."))
-    s.append(step(2, "Click the big green <b>LTS</b> button on the left to download the .msi installer."))
-    s.append(screenshot_placeholder("nodejs.org homepage with the green LTS button highlighted", 4.5))
-    s.append(step(3, "Run the installer. Click <b>Next, Next, Next, Install</b>. Defaults are fine."))
+    s.append(step(2, "Click the green <b>LTS</b> button on the left to download the .msi installer."))
+    s.append(step(3, "Run the installer. Click Next, Next, Install. Defaults are fine."))
     s.append(step(4, "<b>Restart your PC</b> after the install completes."))
-    s.append(step(5, "Verify: open the <b>Start menu</b>, type <i>PowerShell</i>, press Enter, then type:"))
+    s.append(step(5, "Verify: open the Start menu, type <i>PowerShell</i>, press Enter, then type:"))
     s.append(Paragraph("<font face='Courier'>node --version</font>", styles["MyCode"]))
-    s.append(Paragraph("It should print a version number like <font face='Courier'>v20.11.0</font>. "
-                       "If it does, close PowerShell - Part 2 is done.", styles["Body"]))
+    s.append(Paragraph("It should print something like <font face='Courier'>v20.11.0</font>. "
+                       "If yes, close PowerShell - Part 2 is done.", styles["Body"]))
 
-    # ---- Part 3: get folder ----
-    s.append(Paragraph("Part 3 - Get the installer folder from IT", styles["H1"]))
+    # ---- Part 3 ----
+    s.append(PageBreak())
+    s.append(Paragraph("Part 3 - Open the IT share folder", styles["H1"]))
     s.append(Paragraph(
-        "IT will share a OneDrive or network folder containing the compiled tool plus "
-        "an <b>install.cmd</b> file. Sync or copy that folder to your PC. The exact location "
-        "does not matter - the installer handles paths automatically.",
+        "IT keeps the latest version of the tool in a SharePoint folder. "
+        "On your PC, navigate to:",
+        styles["Body"]))
+    s.append(Paragraph(SHAREPOINT_FOLDER, styles["MyCode"]))
+    s.append(Paragraph(
+        "(replace <font face='Courier'>&lt;YOU&gt;</font> with your own Windows username, e.g. <i>jsmith</i>)",
         styles["Body"]))
     s.append(callout(
-        "If you do not have access to the share folder, ask IT (currently Tayfun / Sinan). "
-        "The folder is too big to email - it will be a OneDrive link or a copy on a USB stick.",
+        "If the folder does not exist on your PC, you do not have OneDrive synced. "
+        "Open Microsoft Teams or your browser, find the <b>Energy &gt; IT &gt; SimProMCP</b> SharePoint folder, "
+        "click <b>Sync</b>. Or just ask IT to share a copy directly.",
         kind="info"))
-    s.append(screenshot_placeholder("File Explorer: contents of the share folder showing install.cmd", 4.0))
 
-    # ---- Part 4: install ----
+    # ---- Part 4 ----
     s.append(Paragraph("Part 4 - Run the installer", styles["H1"]))
-    s.append(step(1, "Open the installer folder you got in Part 3."))
+    s.append(step(1, "Open the SharePoint folder from Part 3."))
     s.append(step(2, "<b>Double-click</b> the file named <font face='Courier'><b>install.cmd</b></font>."))
     s.append(callout(
-        "Windows may show a blue 'Windows protected your PC' warning the first time. "
-        "Click <b>More info</b> then <b>Run anyway</b>. The script is from your IT team.",
+        "Windows may show a blue 'Windows protected your PC' warning. Click <b>More info</b> -&gt; <b>Run anyway</b>. "
+        "The script comes from your IT team - it is safe.",
         kind="info"))
-    s.append(step(3, "When the script asks for your <b>Simpro API key</b>, paste the access token from Part 1."))
-    s.append(step(4, "When it asks which company, type <b>3</b> for both Plumbing and Energy "
+    s.append(step(3, "When asked for your <b>Simpro API key</b>, paste the access token from Part 1."))
+    s.append(step(4, "When asked which company, type <b>3</b> for both Plumbing and Energy "
                      "(or 1 for Plumbing only, 2 for Energy only)."))
     s.append(step(5, "Wait about 30 seconds. The script copies the tool, configures Claude Desktop, "
                      "and tells you it is done."))
-    s.append(screenshot_placeholder("PowerShell window showing 'All done' message at end of install", 4.5))
 
-    # ---- Part 5: restart Claude ----
-    s.append(PageBreak())
+    # ---- Part 5 ----
     s.append(Paragraph("Part 5 - Restart Claude Desktop properly", styles["H1"]))
     s.append(callout(
-        "Just closing the Claude Desktop window is not enough. You must <b>Quit</b> "
-        "from the system tray (the small icons near the clock).",
+        "Just closing the Claude Desktop window is NOT enough. You must <b>Quit</b> from the system tray.",
         kind="warning"))
     s.append(step(1, "Look at the bottom-right of your screen, near the clock."))
-    s.append(step(2, "Find the <b>Claude icon</b>. You may need to click the small up-arrow "
-                     "to expand the hidden tray icons."))
-    s.append(step(3, "<b>Right-click</b> the Claude icon."))
-    s.append(step(4, "Click <b>Quit</b>."))
-    s.append(screenshot_placeholder("Windows system tray with Claude icon right-click menu showing Quit", 4.5))
-    s.append(step(5, "Wait 3 seconds, then open Claude Desktop again from the Start menu."))
+    s.append(step(2, "Find the <b>Claude icon</b> in the system tray. You may need to click the small up-arrow to expand hidden icons."))
+    s.append(step(3, "<b>Right-click</b> the Claude icon -&gt; click <b>Quit</b>."))
+    s.append(step(4, "Wait 3 seconds, then open Claude Desktop again from the Start menu."))
 
-    # ---- Part 6: test ----
+    # ---- Part 6 ----
+    s.append(PageBreak())
     s.append(Paragraph("Part 6 - Test it works", styles["H1"]))
     s.append(step(1, "In Claude Desktop, click the small <b>tools / hammer icon</b> near the message box. "
                      "You should see two entries: <i>simpro_plumbing</i> and <i>simpro_energy</i>."))
-    s.append(screenshot_placeholder("Claude Desktop tools menu showing simpro_plumbing and simpro_energy", 4.0))
     s.append(step(2, "Type into the chat:"))
     s.append(Paragraph("<font face='Courier'>Use Simpro Plumbing to test the connection.</font>", styles["MyCode"]))
-    s.append(step(3, "You should see: <i>'Simpro connection OK. Base URL... Company ID: 4...'</i>"))
+    s.append(step(3, "You should see something like: <i>'Simpro connection OK ... Company ID: 4 ...'</i>"))
     s.append(step(4, "Try the other one to confirm both work:"))
     s.append(Paragraph("<font face='Courier'>Use Simpro Energy to test the connection.</font>", styles["MyCode"]))
-    s.append(Paragraph("This one should report <b>Company ID: 37</b>. If both work, you are done.", styles["Body"]))
+    s.append(Paragraph("Should report <b>Company ID: 37</b>. If both work, you are done.", styles["Body"]))
 
     s.append(Paragraph("More things to try", styles["H2"]))
     s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Plumbing to search for customers named Goldman.</i>", styles["Body"]))
     s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Plumbing to find recent jobs.</i>", styles["Body"]))
     s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Plumbing to list line items for purchase order [number].</i>", styles["Body"]))
-    s.append(Paragraph("&nbsp;&nbsp;&bull; <i>Use Simpro Energy to find supplier invoices from Reece in May 2026.</i>", styles["Body"]))
 
-    # ---- Part 7: writes ----
-    s.append(PageBreak())
-    s.append(Paragraph("Part 7 - Turning on writes (later, when you are ready)", styles["H1"]))
+    # ---- Part 7 ----
+    s.append(Paragraph("Part 7 - Turning on writes (later)", styles["H1"]))
     s.append(Paragraph(
-        "After a few days of comfortable read-only use, you can let Claude create or update "
-        "Simpro records. Do this in two stages.",
+        "After a few days of comfortable read-only use, you can let Claude create or update Simpro records. "
+        "Do this in two stages.",
         styles["Body"]))
-
     s.append(Paragraph("Stage 1 - Dry run (safe preview)", styles["H2"]))
     s.append(Paragraph(
-        "Ask IT to flip <i>SIMPRO_ENABLE_WRITE_TOOLS</i> to true while keeping <i>SIMPRO_DRY_RUN</i> "
-        "true. From then on, when you ask Claude to update something, it will <b>show you what it would do</b> "
-        "but not actually send it. Read each preview carefully.",
+        "Edit the Claude Desktop config and set <font face='Courier'>SIMPRO_ENABLE_WRITE_TOOLS=true</font> "
+        "while keeping <font face='Courier'>SIMPRO_DRY_RUN=true</font>. From then on, write requests show "
+        "you what would happen but do not actually send. If you are unsure how to edit the config, ask IT.",
         styles["Body"]))
-    s.append(callout(
-        "Every write also requires <i>confirm: true</i>. If you forget, Claude returns a confirmation "
-        "request instead of doing anything. Two safety layers, on purpose.",
-        kind="safe"))
-
     s.append(Paragraph("Stage 2 - Real writes", styles["H2"]))
     s.append(Paragraph(
-        "Once you are confident, ask IT to flip <i>SIMPRO_DRY_RUN</i> to false. Now writes really happen. "
-        "Start small - add a note to a test job before doing anything bulk. If anything feels wrong, "
-        "ask IT to flip the switch back, and writes stop immediately.",
+        "Once you are confident, set <font face='Courier'>SIMPRO_DRY_RUN=false</font>. Real writes happen now. "
+        "Start small - add a note to a test job before doing anything bulk.",
         styles["Body"]))
+    s.append(callout(
+        "Every write also requires <i>confirm: true</i>. If you forget, Claude returns a confirmation request "
+        "instead of doing anything. Two safety layers, on purpose.",
+        kind="safe"))
+
+    # ---- Updates ----
+    s.append(Paragraph("Updating to a new version", styles["H1"]))
+    s.append(Paragraph(
+        "When IT releases a new version, they will tell you to:",
+        styles["Body"]))
+    s.append(step(1, "Open the SharePoint folder again."))
+    s.append(step(2, "<b>Double-click</b> <font face='Courier'><b>update.cmd</b></font>. It refreshes your local copy without touching your API key."))
+    s.append(step(3, "Quit Claude Desktop from the system tray and reopen."))
 
     # ---- Troubleshooting ----
     s.append(Paragraph("Common problems and fixes", styles["H1"]))
     s.append(trouble_table([
         ("Claude Desktop does not show the simpro tools",
          "You did not fully Quit Claude Desktop. Right-click tray icon -&gt; Quit. Wait 3 seconds. Reopen."),
-        ("'401 Unauthorized' or 'API key invalid'",
-         "Your Simpro API key is wrong, expired, or was deleted. Generate a new one in Simpro (Part 1) "
-         "and re-run install.cmd to update it."),
+        ("'401 Unauthorized'",
+         "Your Simpro API key is wrong, expired, or was deleted. Generate a new one in Simpro (Part 1) and re-run install.cmd to update it."),
         ("'403 Forbidden'",
-         "The key works but lacks permission. In Simpro, edit your API key and grant the missing permission."),
+         "The key works but lacks permission. Edit your API key in Simpro and grant the missing permission."),
         ("'404 Not Found' on every request",
          "Wrong company. Goldman Plumbing = ID 4, Goldman Energy = ID 37. Try the other one."),
         ("'Write tools are disabled'",
-         "Safety guard. Ask IT to enable writes for you (see Part 7)."),
+         "Safety guard. Enable writes (see Part 7)."),
         ("'Confirmation required'",
          "Add <i>confirm: true</i> to your request, or tell Claude <i>'...and confirm true'</i>."),
         ("'Could not reach Simpro'",
-         "Check you can open https://goldmanplumbingservices.simprosuite.com in your browser. "
-         "If the office is on VPN, connect to it."),
+         f"Check you can open <font face='Courier'>{SIMPRO_BASE}</font> in your browser. If on VPN, connect to it."),
         ("Anything else",
-         "Send IT a screenshot of the error. Never include your API key in the screenshot."),
+         "Send IT a screenshot. <b>Never include your API key in the screenshot.</b>"),
     ]))
 
     # ---- Rotating keys ----
@@ -477,15 +552,14 @@ def build_individual_pdf():
     s.append(Paragraph("Do this if your key may have leaked, or if you are leaving Goldman.", styles["Body"]))
     s.append(step(1, "Log into Simpro -&gt; API Keys page (Part 1, Step 2)."))
     s.append(step(2, "Click <b>Add</b> to create a new key, copy the new access token."))
-    s.append(step(3, "Re-run <b>install.cmd</b> on your PC. When asked for the API key, paste the new one."))
-    s.append(step(4, "Quit and reopen Claude Desktop, test the connection."))
+    s.append(step(3, "Re-run <b>install.cmd</b> from the SharePoint folder. When asked for the API key, paste the new one."))
+    s.append(step(4, "Quit and reopen Claude Desktop. Test the connection."))
     s.append(step(5, "Once the new key works, go back to Simpro and <b>delete</b> the old key."))
 
     s.append(Paragraph("If anything is unclear", styles["H1"]))
     s.append(Paragraph(
-        "Contact IT (currently Tayfun / Sinan). Tell them: which step number you are on, the exact "
-        "error message you see, and your Windows version (right-click <i>This PC</i> -&gt; Properties). "
-        "<b>Never include your Simpro API key</b> in screenshots - blur it out first.",
+        "Contact IT (currently <b>Tayfun / Sinan</b>). Tell them: which step number you are on, the exact "
+        "error message, and your Windows version. <b>Never include your Simpro API key</b> in screenshots.",
         styles["Body"]))
 
     doc.build(s, onFirstPage=lambda c, d: header_footer(c, d, "Individual PC Setup"),

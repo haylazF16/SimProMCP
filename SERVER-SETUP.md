@@ -12,23 +12,29 @@ This document is for **you**. For coworkers, send them
 ## What you're setting up
 
 ```
-Your server PC:                      Each coworker's PC:
-┌────────────────────────────┐
-│ Windows service:           │      ┌─────────────────┐
-│   GoldmanSimproMCP         │      │ Claude Desktop  │
-│                            │◄─────┤ Custom Connector│
-│ HTTP on 0.0.0.0:3001       │      │ + bearer token  │
-│   /mcp/plumbing            │      └─────────────────┘
-│   /mcp/energy              │      ┌─────────────────┐
-│                            │◄─────┤ Coworker B      │
-│ tokens.json (per-user keys)│      └─────────────────┘
-│ audit.log (every call)     │
-└────────────────────────────┘
-            │
-            │ HTTPS to Simpro using each coworker's OWN Simpro API key
+   Tayfun's PC (current server)             Each coworker's PC:
+   192.168.88.113 on goldman.com.au LAN
+┌──────────────────────────────────┐
+│ Windows service:                 │      ┌──────────────────┐
+│   GoldmanSimproMCP               │ ◄─── │ Claude Desktop   │
+│                                  │      │ Custom Connector │
+│ HTTP on 0.0.0.0:3001             │      │ + smcp_* token   │
+│   POST /mcp/plumbing             │      └──────────────────┘
+│   POST /mcp/energy               │      ┌──────────────────┐
+│                                  │ ◄─── │ Coworker B's PC  │
+│ tokens.json (per-user keys)      │      └──────────────────┘
+│ audit.log     (every tool call)  │      ┌──────────────────┐
+└──────────────────────────────────┘ ◄─── │ Coworker C's PC  │
+            │                             └──────────────────┘
+            │ HTTPS using each coworker's OWN Simpro API key
             ▼
-     Simpro tenant (audit log shows real employee names)
+   Simpro tenant
+   (audit log shows real employee names)
 ```
+
+**Coworker connection URLs (give these out via COWORKER-CONNECT.md):**
+- Plumbing: `http://192.168.88.113:3001/mcp/plumbing`
+- Energy:   `http://192.168.88.113:3001/mcp/energy`
 
 Why this is good:
 - **One process to update.** Coworker PCs don't need Node.js, don't need the
@@ -121,20 +127,26 @@ Expected output:
 
 If you get this, the server is alive. ✅
 
-### Step 4 — Find the server's LAN IP (give to coworkers)
+### Step 4 — Confirm the server's LAN IP
+
+The current server (Tayfun's PC) is at **`192.168.88.113`** on the
+`goldman.com.au` Wi-Fi.
+
+To verify or to discover a new IP after migration:
 
 ```powershell
 Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin Dhcp,Manual | Where-Object {$_.InterfaceAlias -notlike "*Loopback*"} | Select-Object IPAddress,InterfaceAlias
 ```
 
-Note the IP address (e.g. `192.168.1.50`). Coworkers will use:
-- `http://192.168.1.50:3001/mcp/plumbing`
-- `http://192.168.1.50:3001/mcp/energy`
+Coworker connection URLs:
+- `http://192.168.88.113:3001/mcp/plumbing`
+- `http://192.168.88.113:3001/mcp/energy`
 
-> **Tip:** if your office router supports it, give this PC a **DHCP
-> reservation** (static IP) so the address doesn't change when the PC
-> reboots. Or give it a hostname coworkers can use like
-> `http://goldman-server.local:3001/mcp/plumbing`.
+> **Tip:** ask the office network admin to give this PC a **DHCP reservation**
+> (static IP for `192.168.88.113`) so the address doesn't change after a
+> reboot. Better still, set up a hostname like `goldman-server.local` that
+> resolves to the IP — then if the IP changes you only update DNS, not every
+> coworker's Claude config.
 
 ---
 
@@ -161,8 +173,8 @@ Each time a new coworker needs access:
 4. **The script prints a bearer token**, e.g.
    `smcp_8aZ-pK_R9...`. **Send this token to the coworker** along with the
    two URLs:
-   - Plumbing URL: `http://<server-ip>:3001/mcp/plumbing`
-   - Energy URL:   `http://<server-ip>:3001/mcp/energy`
+   - Plumbing URL: `http://192.168.88.113:3001/mcp/plumbing`
+   - Energy URL:   `http://192.168.88.113:3001/mcp/energy`
 
 5. They follow Parts 2-3 of [COWORKER-CONNECT.md](COWORKER-CONNECT.md) and
    are ready to use the tool.

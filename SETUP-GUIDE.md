@@ -1,25 +1,50 @@
-# Simpro + Claude Desktop — Setup Guide
+# Simpro + Claude Desktop — Plan B Setup Guide
 
-**Who this is for:** office admins at Goldman who want to use Claude Desktop
-to read and update Simpro data. **No coding experience needed.**
+**Who this is for:** office staff at Goldman who can't use the LAN server
+version (e.g. you're on Free Claude, or you need to work from home without
+VPN). This guide installs the Simpro tool **directly on your PC**.
 
-You will end up being able to chat with Claude on your PC and say things like
-*"find recent jobs for ABC Strata"* or *"add a note to job 130747"* and Claude
-will do it directly in Simpro.
+If your Claude plan supports Custom Connectors, **use COWORKER-CONNECT.md
+instead** — it's simpler.
 
-> ⏱ **Time:** about 5–10 minutes if you use the installer (Part 0 below).
+> ⏱ **Time:** about 5–10 minutes with the installer (Part 0 below).
 > ✅ **You will need:** a Goldman Simpro login that can create API keys (or an
 > admin who can create one for you), a Windows PC, Claude Desktop installed,
 > and Node.js installed.
+
+## Architecture (one diagram)
+
+```
+┌──────────────────────────────────┐    HTTPS   ┌───────────────────┐
+│  Your PC                         │  uses YOUR │  Simpro Cloud     │
+│  Claude Desktop                  │  Simpro    │  goldmanplumbing  │
+│   ↓ STDIO subprocess             │  API key   │  services         │
+│  Simpro tool (node)              │ ─────────▶ │  .simprosuite.com │
+│  installed at                    │            │                   │
+│  %LOCALAPPDATA%\GoldmanSimproMCP │            └───────────────────┘
+└──────────────────────────────────┘
+```
+
+Everything runs locally on your PC. Claude Desktop launches the Simpro tool
+as a small background process. The tool talks to Simpro using your own
+Simpro API key.
 
 ---
 
 ## Part 0 — The fast way: run the installer (recommended)
 
-**If IT gave you a folder containing `install.cmd`, this is all you need:**
+**Pre-requisite:** Node.js 18.17+ installed (see Part 2 if you don't have it).
 
 1. **Get your Simpro API key first** — see Part 1 below for how to create one.
-2. **Open the share folder** IT sent you.
+2. **Open the SharePoint folder** in File Explorer:
+   ```
+   C:\Users\<YOU>\GoldmanPlumbing\Goldman Plumbing Services\Energy - Documents\IT\SimProMCP
+   ```
+   (replace `<YOU>` with your Windows username, e.g. `jsmith`)
+
+   If the folder doesn't exist, you don't have OneDrive synced — open
+   Microsoft Teams or your browser, find **Energy → IT → SimProMCP**,
+   click **Sync**.
 3. **Double-click `install.cmd`**. (If Windows shows a "Windows protected your
    PC" warning, click *More info* → *Run anyway*.)
 4. **Follow the prompts:** paste your API key, choose 1/2/3 (Plumbing /
@@ -29,11 +54,14 @@ will do it directly in Simpro.
 6. **Test it:** type *"Use Simpro Plumbing to test the connection."* in
    Claude Desktop. You should see *"Simpro connection OK…"*.
 
-**Done.** You can skip Parts 2, 3, and 4 below. Read Part 1 (how to create
-your API key) and Part 6 (turning on writes later).
+**Done.** You can skip Parts 3 and 4 below. Read Part 1 (how to create your
+API key) and Part 6 (turning on writes later).
 
-If the installer doesn't work for you for any reason, the manual steps in
-Parts 2–4 give you the same result.
+When IT releases an update, just open the SharePoint folder again and
+double-click **`update.cmd`** instead.
+
+If the installer doesn't work for any reason, the manual steps in Parts 3–4
+give you the same result.
 
 ---
 
