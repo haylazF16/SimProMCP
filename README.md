@@ -1,16 +1,15 @@
 # simpro-mcp-server
 
-> 👋 **Office admins / non-coders:** read **[SETUP-GUIDE.md](SETUP-GUIDE.md)**
-> instead of this file. It walks you click-by-click from "no API key" to
-> "Claude is talking to Simpro" in about 20 minutes, including how to create
-> your own API key in Simpro.
+> Pick the doc that matches your role:
 >
-> 🛠 **Rolling this out to coworkers?** See
-> **[ROLLOUT-CHECKLIST.md](ROLLOUT-CHECKLIST.md)** for the IT-side steps:
-> what to bundle into the share folder, how to update later, the email
-> template to send each coworker, and the per-user security checklist.
+> | Role | Read | What it covers |
+> |---|---|---|
+> | IT / admin (LAN server, recommended) | **[SERVER-SETUP.md](SERVER-SETUP.md)** | Install the HTTP server as a Windows service, manage users with `tokens.json`, audit log, migrate to a new server PC later. |
+> | Coworker connecting to the LAN server | **[COWORKER-CONNECT.md](COWORKER-CONNECT.md)** | Get a Simpro API key, add a Custom Connector in Claude Desktop. ~5 min. |
+> | Coworker doing standalone Plan B install | **[SETUP-GUIDE.md](SETUP-GUIDE.md)** | Install on each PC. STDIO version (no server needed). |
+> | IT distributing Plan B installer | **[ROLLOUT-CHECKLIST.md](ROLLOUT-CHECKLIST.md)** | Build the share folder, push updates, security checklist. |
 >
-> This README is the technical reference for whoever maintains the tool.
+> This README is the technical reference for whoever maintains the code.
 
 A local **Model Context Protocol (MCP)** server that lets **Claude Desktop** read,
 create, and update data in your **Simpro CRM** account using Simpro's official
