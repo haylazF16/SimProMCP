@@ -1,0 +1,14 @@
+# Mark binary files so git doesn't try to do line-ending conversion on them.
+*.pdf  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.zip  binary
+*.ico  binary
+
+# Force LF line endings for shell-ish text on Windows checkouts to keep
+# them sane if someone clones on Linux/Mac.
+*.sh   text eol=lf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
