@@ -13,11 +13,18 @@ const intFromString = (def: number, min = 1, max = 600_000) =>
     .pipe(z.number().int().min(min).max(max));
 
 const ConfigSchema = z.object({
+  // Transport selection. 'stdio' = legacy local mode (Claude Desktop launches
+  // node as a subprocess). 'http' = LAN/server mode listening on a port.
+  // Defaults to 'stdio' so the existing Plan B install behaviour is unchanged.
+  SIMPRO_TRANSPORT: z.enum(["stdio", "http"]).default("stdio"),
+
   SIMPRO_BASE_URL: z
     .string()
     .url("SIMPRO_BASE_URL must be a full URL like https://yourcompany.simprosuite.com")
     .transform((u) => u.replace(/\/+$/, "")),
-  SIMPRO_API_KEY: z.string().min(8, "SIMPRO_API_KEY is missing or too short"),
+  // In HTTP mode SIMPRO_API_KEY can be empty if tokens.json provides per-user
+  // keys. In STDIO mode it is required. We validate that conditionally below.
+  SIMPRO_API_KEY: z.string().default(""),
   SIMPRO_COMPANY_ID: z
     .union([z.string(), z.number()])
     .transform((v) => String(v))
@@ -27,6 +34,14 @@ const ConfigSchema = z.object({
   SIMPRO_REQUEST_TIMEOUT_MS: intFromString(30_000, 1_000, 600_000),
   SIMPRO_MAX_PAGE_SIZE: intFromString(100, 1, 1000),
   SIMPRO_DEFAULT_PAGE_SIZE: intFromString(25, 1, 1000),
+
+  // HTTP mode tunables (ignored in STDIO mode).
+  // Default bind 127.0.0.1 = localhost-only for safety. Set to 0.0.0.0 to
+  // make the server reachable from other PCs on the LAN.
+  SIMPRO_HTTP_HOST: z.string().default("127.0.0.1"),
+  SIMPRO_HTTP_PORT: intFromString(3001, 1, 65535),
+  // Path to tokens.json for per-user auth in HTTP mode.
+  SIMPRO_TOKENS_FILE: z.string().default("./tokens.json"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -43,6 +58,14 @@ export function loadConfig(): Config {
       "\n\nCopy .env.example to .env and fill in the required values, " +
       "or set the variables in the Claude Desktop config 'env' block.";
     throw new Error(msg);
+  }
+  // STDIO mode requires a global API key (single-user). HTTP mode allows
+  // per-user keys via tokens.json, so a global key is optional there.
+  if (parsed.data.SIMPRO_TRANSPORT === "stdio" && parsed.data.SIMPRO_API_KEY.length < 8) {
+    throw new Error(
+      "SIMPRO_API_KEY is required in STDIO mode (must be at least 8 characters). " +
+      "Set it in your .env or Claude Desktop config 'env' block.",
+    );
   }
   return parsed.data;
 }
