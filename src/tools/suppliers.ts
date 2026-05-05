@@ -287,6 +287,141 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       }),
   );
 
+  // ---- create purchase order ----
+  // Probed live against Goldman tenant. Required fields are Vendor and
+  // StorageDevice, both as INTEGER IDs (not nested {ID:...} objects -
+  // different convention from GET responses!). DateIssued defaults to
+  // today, Reference defaults to empty.
+  //
+  // Note: this creates a Catalogue PO not yet attached to a job. To bind
+  // it to a job's cost-centre/section (the AssignedTo field), do that
+  // separately via the Simpro web UI or simpro_update_purchase_order
+  // with a rawPayload.
+  server.tool(
+    "simpro_create_purchase_order",
+    "Create a new purchase order (vendor order) in Simpro. Requires confirm=true. Honors SIMPRO_ENABLE_WRITE_TOOLS and SIMPRO_DRY_RUN. Use simpro_search_suppliers to find supplierId, simpro_search_storage_devices for storageDeviceId. After creation, use simpro_add_purchase_order_item to add lines.",
+    {
+      confirm: confirmSchema,
+      supplierId: idSchema.optional()
+        .describe("Simpro supplier (vendor) ID. Find with simpro_search_suppliers. Either this OR supplierName must be provided."),
+      supplierName: z.string().optional()
+        .describe("Alternative to supplierId: the tool will resolve the name to an ID. Either supplierId OR supplierName must be provided."),
+      storageDeviceId: idSchema.optional()
+        .describe("Where the goods will be received. Find with simpro_search_storage_devices. Defaults to the main warehouse (ID 75) if omitted."),
+      dateIssued: isoDateSchema.describe("ISO date (YYYY-MM-DD). Defaults to today."),
+      reference: z.string().optional()
+        .describe("Free text reference, e.g. 'Job No. 130602 - WATER LEAK'."),
+      vendorNotes: z.string().optional()
+        .describe("Notes visible to the supplier (HTML accepted)."),
+      privateNotes: z.string().optional()
+        .describe("Internal-only notes."),
+      rawPayload: rawPayloadSchema,
+    },
+    async (args) =>
+      safeRun(async () => {
+        // Resolve supplierName to supplierId if needed.
+        let supplierId = args.supplierId;
+        let resolvedNote = "";
+        if (!supplierId && args.supplierName) {
+          const lookup = await resolveSupplierByName(ctx, args.supplierName);
+          if (!lookup.matchedId) return textResponse(lookup.note, true);
+          supplierId = lookup.matchedId;
+          resolvedNote = lookup.note + "\n\n";
+        }
+        if (!supplierId) {
+          return textResponse(
+            "Either supplierId or supplierName is required.",
+            true,
+          );
+        }
+        const payload = args.rawPayload ?? pruneEmpty({
+          // Simpro POST expects PLAIN INTEGERS for Vendor + StorageDevice
+          // (NOT nested {ID:...} objects — different from the GET shape).
+          Vendor: Number(supplierId),
+          StorageDevice: args.storageDeviceId !== undefined ? Number(args.storageDeviceId) : 75,
+          DateIssued: args.dateIssued,
+          Reference: args.reference,
+          VendorNotes: args.vendorNotes,
+          PrivateNotes: args.privateNotes,
+        });
+        const path = ctx.client.companyPath(ENDPOINTS.vendorOrders);
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm,
+          method: "POST",
+          path,
+          payload,
+          summary: `Create purchase order to supplier #${supplierId}`,
+        });
+        if (blocked) {
+          if (resolvedNote) blocked.content[0].text = resolvedNote + blocked.content[0].text;
+          return blocked;
+        }
+        const resp = await ctx.client.post<SimproVendorOrder>(path, payload);
+        const result = formatRecord(
+          `Created PO #${resp.ID ?? "?"} to ${resp.Vendor?.Name ?? "(supplier)"}.\n` +
+          `Next: add line items with simpro_add_purchase_order_item using purchaseOrderId=${resp.ID}.`,
+          resp, resp, true,
+        );
+        if (resolvedNote) result.content[0].text = resolvedNote + result.content[0].text;
+        return result;
+      }),
+  );
+
+  // ---- add line item to PO ----
+  // Verified live: POST /vendorOrders/{id}/catalogs/ with body shape:
+  //   { Catalog: <int catalogId>, Price: <num>, Allocations: [{ Quantity: <int> }] }
+  // Same Catalog can only appear ONCE per PO (duplicate-key constraint).
+  server.tool(
+    "simpro_add_purchase_order_item",
+    "Add a line item to an existing Simpro purchase order. Requires confirm=true. The same catalog item can only appear once per PO — to change quantity, update the existing line. Use simpro_search_catalog to find catalogId.",
+    {
+      confirm: confirmSchema,
+      purchaseOrderId: idSchema,
+      catalogId: idSchema.describe("Simpro catalog ID (the part). Find with simpro_search_catalog."),
+      quantity: z.number().int().positive().describe("How many of this part to order."),
+      price: z.number().nonnegative().optional()
+        .describe("Unit price excluding tax. If omitted, Simpro uses the catalog's default trade price."),
+      notes: z.string().optional(),
+      rawPayload: rawPayloadSchema,
+    },
+    async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          Catalog: Number(args.catalogId),
+          Price: args.price,
+          Notes: args.notes,
+          Allocations: [pruneEmpty({
+            Quantity: args.quantity,
+            Notes: args.notes,
+          })],
+        });
+        const path = ctx.client.companyPath(
+          ENDPOINTS.vendorOrderItems(args.purchaseOrderId),
+        );
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm,
+          method: "POST",
+          path,
+          payload,
+          summary: `Add catalog #${args.catalogId} (qty ${args.quantity}) to PO #${args.purchaseOrderId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.post<{
+          Catalog?: { ID?: number; PartNo?: string; Name?: string };
+          Price?: number;
+          Allocations?: Array<{ Quantity?: { Total?: number }; Total?: number }>;
+        }>(path, payload);
+        const lineTotal = resp.Allocations?.[0]?.Total;
+        return formatRecord(
+          `Added [${resp.Catalog?.PartNo ?? ""}] ${resp.Catalog?.Name ?? "(unnamed)"} ` +
+          `to PO #${args.purchaseOrderId} — qty ${args.quantity}` +
+          `${resp.Price !== undefined ? ` @ $${resp.Price}` : ""}` +
+          `${lineTotal !== undefined ? ` = $${lineTotal} line total` : ""}.`,
+          resp, resp, true,
+        );
+      }),
+  );
+
   // ---- search vendor receipts (supplier invoices) ----
   server.tool(
     "simpro_search_supplier_invoices",
