@@ -34,6 +34,55 @@ export function registerNoteTools(server: McpServer, ctx: ToolCtx) {
       }),
   );
 
+  // ---- attach file link (workaround for missing attachment API) ----
+  // Simpro v1.0 REST API does NOT expose attachments/files/documents (verified
+  // by exhaustive endpoint sweep). The closest workaround is to upload the
+  // file to a SharePoint/OneDrive folder + post a link to it as a job note.
+  // This tool standardises that flow: the note shows up clearly in the
+  // Simpro web UI's job timeline as "ATTACHMENT: <description> -> <url>"
+  // and a click takes the user to the actual file.
+  //
+  // For a true attachment (file binary stored inside Simpro) the user would
+  // need Simpro's separate "Files API" product — ask Simpro support about it.
+  server.tool(
+    "simpro_attach_file_link_to_job",
+    "Workaround for Simpro's missing attachment API: post a link to a file (stored in SharePoint, OneDrive, Dropbox, etc.) as a structured job note. The file itself stays where it is; the job in Simpro shows a clearly labelled clickable note pointing at it. Requires confirm=true. NOTE: this is NOT a true Simpro attachment — Simpro's REST API doesn't support binary file uploads. For native attachments, use the Simpro web UI directly, or contact Simpro support about their separate Files API product.",
+    {
+      confirm: confirmSchema,
+      jobId: idSchema,
+      fileUrl: z.string().url()
+        .describe("Public or shared link to the file. SharePoint/OneDrive 'Anyone with link' URLs work best."),
+      description: z.string().min(1)
+        .describe("What the file is, e.g. 'Site photo - basement leak' or 'Quote PDF from Reece'."),
+      visibility: z.string().optional()
+        .describe("Optional visibility flag for the note. Leave blank if unsure."),
+    },
+    async (args) =>
+      safeRun(async () => {
+        const noteText =
+          `ATTACHMENT: ${args.description}\n` +
+          `Link: ${args.fileUrl}\n` +
+          `(Linked via Goldman Simpro AI tool — file stored externally, Simpro REST API does not support binary attachments.)`;
+        const payload = pruneEmpty({
+          Note: noteText,
+          Visibility: args.visibility,
+        });
+        const path = ctx.client.companyPath(ENDPOINTS.jobNotes(args.jobId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "POST", path, payload,
+          summary: `Attach file link "${args.description}" to job #${args.jobId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.post<{ ID?: number }>(path, payload);
+        return formatRecord(
+          `Attached file link to job #${args.jobId}: ${args.description}\n` +
+          `URL: ${args.fileUrl}\n` +
+          `(Saved as job note id #${resp.ID ?? "?"}.)`,
+          resp, resp, true,
+        );
+      }),
+  );
+
   // ---- 11. company info / connection test ----
   server.tool(
     "simpro_get_company_info",

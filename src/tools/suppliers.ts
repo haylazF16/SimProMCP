@@ -14,6 +14,7 @@ import { buildKeywordFilter, likeWildcard } from "../utils/filter.js";
 import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard } from "./_shared.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, addressSchema, isoDateSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
+import { resolveJobAssignment } from "../utils/resolveJobAssignment.js";
 
 interface SimproSupplier {
   ID?: number;
@@ -288,29 +289,33 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- create purchase order ----
-  // Probed live against Goldman tenant. Required fields are Vendor and
-  // StorageDevice, both as INTEGER IDs (not nested {ID:...} objects -
-  // different convention from GET responses!). DateIssued defaults to
-  // today, Reference defaults to empty.
+  // Probed live against Goldman tenant.
+  // Required: Vendor (int), StorageDevice (int), AssignedTo (int composite ID
+  //   that maps Job + Section + CostCenter — fetched via resolveJobAssignment).
+  // Optional: DateIssued (defaults to today), Reference, VendorNotes, PrivateNotes.
   //
-  // Note: this creates a Catalogue PO not yet attached to a job. To bind
-  // it to a job's cost-centre/section (the AssignedTo field), do that
-  // separately via the Simpro web UI or simpro_update_purchase_order
-  // with a rawPayload.
+  // POs in Simpro must be tied to a job's cost centre — otherwise the cost
+  // doesn't roll up against any work and the PO is meaningless. We REQUIRE
+  // jobId for that reason. If the job has multiple cost centres, the user
+  // must also specify which one.
   server.tool(
     "simpro_create_purchase_order",
-    "Create a new purchase order (vendor order) in Simpro. Requires confirm=true. Honors SIMPRO_ENABLE_WRITE_TOOLS and SIMPRO_DRY_RUN. Use simpro_search_suppliers to find supplierId, simpro_search_storage_devices for storageDeviceId. After creation, use simpro_add_purchase_order_item to add lines.",
+    "Create a new purchase order in Simpro, attached to a specific job's cost centre. Requires confirm=true. The PO is bound to the job so its cost rolls up correctly. If the job has multiple cost centres, also pass costCenterId. Use simpro_search_suppliers to find supplierId, simpro_search_jobs to find jobId. After creation, use simpro_add_purchase_order_item for line items.",
     {
       confirm: confirmSchema,
+      jobId: idSchema
+        .describe("Simpro job ID this PO is being raised for. REQUIRED — POs must attach to a job."),
+      costCenterId: idSchema.optional()
+        .describe("Cost centre ID on that job. Only needed if the job has more than one cost centre. List them with simpro_list_cost_centres or by reading the job."),
       supplierId: idSchema.optional()
         .describe("Simpro supplier (vendor) ID. Find with simpro_search_suppliers. Either this OR supplierName must be provided."),
       supplierName: z.string().optional()
-        .describe("Alternative to supplierId: the tool will resolve the name to an ID. Either supplierId OR supplierName must be provided."),
+        .describe("Alternative to supplierId: the tool will resolve the name to an ID."),
       storageDeviceId: idSchema.optional()
         .describe("Where the goods will be received. Find with simpro_search_storage_devices. Defaults to the main warehouse (ID 75) if omitted."),
       dateIssued: isoDateSchema.describe("ISO date (YYYY-MM-DD). Defaults to today."),
       reference: z.string().optional()
-        .describe("Free text reference, e.g. 'Job No. 130602 - WATER LEAK'."),
+        .describe("Free text reference, e.g. 'Job No. 130602 - WATER LEAK'. Auto-generated if omitted."),
       vendorNotes: z.string().optional()
         .describe("Notes visible to the supplier (HTML accepted)."),
       privateNotes: z.string().optional()
@@ -319,50 +324,58 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
     },
     async (args) =>
       safeRun(async () => {
-        // Resolve supplierName to supplierId if needed.
+        // Resolve supplier name -> id.
         let supplierId = args.supplierId;
-        let resolvedNote = "";
+        const noteLines: string[] = [];
         if (!supplierId && args.supplierName) {
           const lookup = await resolveSupplierByName(ctx, args.supplierName);
           if (!lookup.matchedId) return textResponse(lookup.note, true);
           supplierId = lookup.matchedId;
-          resolvedNote = lookup.note + "\n\n";
+          noteLines.push(lookup.note);
         }
         if (!supplierId) {
-          return textResponse(
-            "Either supplierId or supplierName is required.",
-            true,
-          );
+          return textResponse("Either supplierId or supplierName is required.", true);
         }
+
+        // Resolve job + cost-centre -> AssignedTo composite ID.
+        const assignment = await resolveJobAssignment(ctx.client, args.jobId, args.costCenterId);
+        if (!assignment.matchedId) {
+          return textResponse(assignment.note, true);
+        }
+        noteLines.push(assignment.note);
+
         const payload = args.rawPayload ?? pruneEmpty({
-          // Simpro POST expects PLAIN INTEGERS for Vendor + StorageDevice
-          // (NOT nested {ID:...} objects — different from the GET shape).
+          // Simpro POST expects PLAIN INTEGERS for Vendor / StorageDevice /
+          // AssignedTo (NOT nested {ID:...} — different from the GET shape).
           Vendor: Number(supplierId),
           StorageDevice: args.storageDeviceId !== undefined ? Number(args.storageDeviceId) : 75,
+          AssignedTo: assignment.matchedId,
           DateIssued: args.dateIssued,
-          Reference: args.reference,
+          Reference: args.reference ?? `Job No. ${args.jobId}`,
           VendorNotes: args.vendorNotes,
           PrivateNotes: args.privateNotes,
         });
         const path = ctx.client.companyPath(ENDPOINTS.vendorOrders);
+        const resolvedNote = noteLines.join("\n") + "\n\n";
+
         const blocked = writeGuard(ctx, {
           confirm: args.confirm,
           method: "POST",
           path,
           payload,
-          summary: `Create purchase order to supplier #${supplierId}`,
+          summary: `Create PO to supplier #${supplierId} for job #${args.jobId}`,
         });
         if (blocked) {
-          if (resolvedNote) blocked.content[0].text = resolvedNote + blocked.content[0].text;
+          blocked.content[0].text = resolvedNote + blocked.content[0].text;
           return blocked;
         }
         const resp = await ctx.client.post<SimproVendorOrder>(path, payload);
         const result = formatRecord(
-          `Created PO #${resp.ID ?? "?"} to ${resp.Vendor?.Name ?? "(supplier)"}.\n` +
+          `Created PO #${resp.ID ?? "?"} to ${resp.Vendor?.Name ?? "(supplier)"} attached to job #${args.jobId}.\n` +
           `Next: add line items with simpro_add_purchase_order_item using purchaseOrderId=${resp.ID}.`,
           resp, resp, true,
         );
-        if (resolvedNote) result.content[0].text = resolvedNote + result.content[0].text;
+        result.content[0].text = resolvedNote + result.content[0].text;
         return result;
       }),
   );
