@@ -10,8 +10,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
 import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
-import { idSchema, rawFlagSchema } from "../utils/schemas.js";
-import { extractList, formatList, formatRecord, safeRun, ToolCtx } from "./_shared.js";
+import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema } from "../utils/schemas.js";
+import { pruneEmpty } from "../utils/sanitise.js";
+import { extractList, formatList, formatRecord, safeRun, ToolCtx, writeGuard } from "./_shared.js";
 
 interface SimproCatalog {
   ID?: number;
@@ -97,6 +98,82 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
         );
       }),
   );
+
+  // ---- create catalog item ----
+  // Verified live: POST /catalogs/ requires only Name. PartNo, Group,
+  // TradePrice, Manufacturer etc. are all optional. Group must be a valid
+  // catalogGroup ID (use Simpro's web UI to discover commonly-used groups
+  // for your business — common Goldman group IDs include 28=COOKS).
+  //
+  // Strongly recommended workflow when adding a part that came from a
+  // supplier quote:
+  //   1. simpro_search_catalog with the partNo first to avoid duplicates
+  //   2. If no result, call this tool with at least PartNo + Name + TradePrice
+  //   3. The returned catalogId can then be used in simpro_add_purchase_order_item
+  server.tool(
+    "simpro_create_catalog_item",
+    "Create a new item in the Simpro parts catalog. Use this when a part on a supplier quote isn't already in Simpro's catalog. Required: name. Strongly recommended: partNo, tradePrice. Honors SIMPRO_ENABLE_WRITE_TOOLS / SIMPRO_DRY_RUN. Always search first with simpro_search_catalog to avoid creating duplicates.",
+    {
+      confirm: confirmSchema,
+      name: z.string().min(1)
+        .describe("The part's display name. Required. e.g. '2-pt Output Module'."),
+      partNo: z.string().optional()
+        .describe("Manufacturer or supplier part number. e.g. 'FC6A-K2A1'. Strongly recommended for searching later."),
+      tradePrice: z.number().nonnegative().optional()
+        .describe("Cost price ex-tax. Used for PO defaults and margin calculations."),
+      manufacturer: z.string().optional(),
+      upc: z.string().optional()
+        .describe("Universal Product Code / barcode."),
+      countryOfOrigin: z.string().optional(),
+      markup: z.number().nonnegative().optional()
+        .describe("Markup percentage applied to derive sell price (e.g. 30 for 30%)."),
+      sellPrice: z.number().nonnegative().optional()
+        .describe("Customer sell price ex-tax. If omitted, derived from tradePrice + markup."),
+      isInventory: z.boolean().optional()
+        .describe("Track stock for this item? Defaults to true in Simpro."),
+      group: z.union([z.number(), z.string()]).optional()
+        .describe("Catalog group ID (categorisation). Must be an existing group from Simpro setup."),
+      storageLocation: z.string().optional()
+        .describe("Free-text location e.g. 'Bin A3'."),
+      notes: z.string().optional(),
+      rawPayload: rawPayloadSchema,
+    },
+    async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          Name: args.name,
+          PartNo: args.partNo,
+          TradePrice: args.tradePrice,
+          Manufacturer: args.manufacturer,
+          UPC: args.upc,
+          CountryOfOrigin: args.countryOfOrigin,
+          Markup: args.markup,
+          SellPrice: args.sellPrice,
+          IsInventory: args.isInventory,
+          Group: args.group !== undefined ? Number(args.group) : undefined,
+          StorageLocation: args.storageLocation,
+          Notes: args.notes,
+        });
+        const path = ctx.client.companyPath(ENDPOINTS.catalogs);
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm,
+          method: "POST",
+          path,
+          payload,
+          summary: `Create catalog item "${args.name}"${args.partNo ? ` (${args.partNo})` : ""}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.post<SimproCatalog>(path, payload);
+        return formatRecord(
+          `Created catalog item #${resp.ID ?? "?"}: ${resp.PartNo ? `[${resp.PartNo}] ` : ""}${resp.Name ?? args.name}.\n` +
+          `Use catalogId=${resp.ID} when adding to a purchase order.`,
+          resp, resp, true,
+        );
+      }),
+  );
+
+  // (No simpro_update_catalog_item yet. Use rawPayload via simpro_create_catalog_item
+  // with the same PartNo, or edit in the Simpro web UI. Add this if needed.)
 
   // ---- search storage devices ----
   server.tool(

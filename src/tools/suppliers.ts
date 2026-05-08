@@ -386,7 +386,7 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   // Same Catalog can only appear ONCE per PO (duplicate-key constraint).
   server.tool(
     "simpro_add_purchase_order_item",
-    "Add a line item to an existing Simpro purchase order. Requires confirm=true. The same catalog item can only appear once per PO — to change quantity, update the existing line. Use simpro_search_catalog to find catalogId.",
+    "Add a line item to an existing Simpro purchase order. Requires confirm=true. The same catalog item can only appear once per PO — to change quantity, update the existing line.\n\nWORKFLOW for items from a supplier quote:\n  1. Call simpro_search_catalog with the part number to see if it already exists.\n  2. If found: use the returned catalogId here.\n  3. If NOT found: call simpro_create_catalog_item to add it (with name, partNo, tradePrice from the quote), then use the returned catalogId here. This is exactly how Goldman handles items that aren't in Simpro's catalog yet — they get added, then included on the PO.",
     {
       confirm: confirmSchema,
       purchaseOrderId: idSchema,
