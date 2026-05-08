@@ -1,4 +1,22 @@
-import "dotenv/config";
+// Load .env from the PROJECT ROOT (the folder containing dist/), not from
+// the current working directory. When Claude Desktop spawns
+// `node dist/index.js` it does so from an unpredictable cwd (often the
+// user's home), so the default dotenv behaviour finds nothing.
+//
+// We explicitly point dotenv at <projectRoot>/.env. We also pass
+// override:true so that values in this .env file take precedence over
+// anything Claude Desktop's launcher injected via its own env block.
+// This is important because claude_desktop_config.json sometimes gets
+// auto-rewritten by the host app or by sync tools, whereas the .env
+// file in the project folder is owned solely by us.
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// dist/config.js -> dist/.. -> project root
+const PROJECT_ROOT = path.resolve(__dirname, "..");
+dotenv.config({ path: path.join(PROJECT_ROOT, ".env"), override: true });
+
 import { z } from "zod";
 
 const boolFromString = z
