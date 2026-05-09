@@ -39,9 +39,12 @@ ProtectControlGroups=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 # Don't allow new namespaces from inside the service
 RestrictNamespaces=true
-# Lock memory protections
-MemoryDenyWriteExecute=true
 LockPersonality=true
+# NOTE: MemoryDenyWriteExecute=true is INTENTIONALLY OMITTED because it
+# breaks Node.js V8 JIT compilation (V8 needs to make memory executable
+# after writing JIT code). The crash looks like
+# `v8::base::OS::SetPermissions(...) status=5/TRAP` followed by core dump.
+# Same issue affects Java/JVM. Other hardening options above stay enabled.
 
 [Install]
 WantedBy=multi-user.target
