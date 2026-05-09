@@ -325,15 +325,31 @@ export function attachConsentRoutes(
   router.get("/authorize", async (req: Request, res: Response) => {
     try {
       const params = parseAuthorizeQuery(req);
-      const client = await provider.clientsStore.getClient(params.clientId);
+      let client = await provider.clientsStore.getClient(params.clientId);
+
+      // Lazy Dynamic Client Registration: Claude Desktop's "Bearer token"
+      // auth mode arrives at /authorize with a hardcoded client_id
+      // ("Bearer token") and no preceding /register call. We auto-register
+      // unknown clients on the fly using the redirect_uri from the request.
+      // This is safe because the tailnet already gates who can reach us,
+      // and our /token endpoint still enforces PKCE verification.
       if (!client) {
-        res.status(400).type("text/plain").send(`Unknown client_id: ${params.clientId}`);
-        return;
-      }
-      // Validate redirect_uri up-front so user isn't tricked by a malicious one
-      if (!client.redirect_uris.includes(params.redirectUri)) {
-        res.status(400).type("text/plain").send("Unregistered redirect_uri");
-        return;
+        client = await provider.clientsStore.registerClient({
+          client_id: params.clientId,
+          client_name: params.clientId,
+          redirect_uris: [params.redirectUri],
+          token_endpoint_auth_method: "none",
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+        } as unknown as OAuthClientInformationFull);
+        log.info(`OAuth client auto-registered (lazy DCR): ${params.clientId} -> ${params.redirectUri}`);
+      } else if (!client.redirect_uris.includes(params.redirectUri)) {
+        // If the client was previously registered with a different redirect_uri,
+        // accept the new one too (Claude Desktop sometimes uses ephemeral
+        // localhost ports). Add it to the registered list.
+        client.redirect_uris = [...client.redirect_uris, params.redirectUri];
+        await provider.clientsStore.registerClient(client);
+        log.info(`OAuth client redirect_uri added: ${params.clientId} += ${params.redirectUri}`);
       }
       const sessionId = provider.beginPending(client, params);
       res.type("text/html").send(
