@@ -62,6 +62,14 @@ const ConfigSchema = z.object({
   SIMPRO_TOKENS_FILE: z.string().default("./tokens.json"),
   // Audit log (one JSON object per line) of every authenticated tool call.
   SIMPRO_AUDIT_FILE: z.string().default("./audit.log"),
+
+  // Public-facing base URL of this server, used as the OAuth issuer/baseUrl.
+  // This is the URL coworkers see in their Claude Desktop Custom Connector,
+  // INCLUDING scheme. e.g. https://goldman-ubuntu.tailf6f5cf.ts.net
+  // (no trailing slash, no /mcp/* path).
+  // If unset, falls back to http://<bind-host>:<port> which only works for
+  // localhost testing. For production, set this in .env.
+  SIMPRO_PUBLIC_BASE_URL: z.string().default(""),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

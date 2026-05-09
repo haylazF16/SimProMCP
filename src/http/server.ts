@@ -23,10 +23,11 @@
 //   5. Hand off to the transport
 //   6. Audit-log the user/company/method on the way out
 
-import express, { type Request, type Response, type NextFunction } from "express";
+import express, { type Request, type Response, type NextFunction, Router } from "express";
 import cors from "cors";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
 import { Config } from "../config.js";
 import { log, maskToken } from "../logger.js";
 import { SimproClient } from "../simpro/client.js";
@@ -39,6 +40,7 @@ import {
   touchTokenLastUsed,
 } from "./tokens.js";
 import { recordAudit } from "./audit.js";
+import { GoldmanOAuthProvider, attachConsentRoutes } from "./oauth.js";
 
 export interface RunHttpOptions {
   config: Config;
@@ -81,6 +83,39 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
     }),
   );
   app.use(express.json({ limit: "4mb" }));
+  app.use(express.urlencoded({ extended: false }));
+
+  // ---- OAuth 2.0 server (required by Claude Desktop's Custom Connector) ----
+  // The provider validates user-pasted bearer tokens against tokens.json and
+  // issues those same tokens as OAuth access tokens (one-time consent → reuse).
+  // This bridges Claude Desktop's OAuth-only auth flow to our existing
+  // bearer-token model with zero changes to tokens.json.
+  const oauthProvider = new GoldmanOAuthProvider(config.SIMPRO_TOKENS_FILE);
+  // Compute the issuer URL from the configured public-facing base. If
+  // SIMPRO_PUBLIC_BASE_URL isn't set, fall back to a localhost guess so the
+  // service still starts (admin can fix later).
+  const issuerUrl = new URL(
+    config.SIMPRO_PUBLIC_BASE_URL ||
+    `http://${config.SIMPRO_HTTP_HOST}:${config.SIMPRO_HTTP_PORT}`,
+  );
+
+  // Register our custom consent routes BEFORE mcpAuthRouter — Express picks
+  // the first match, so our /authorize takes precedence over the SDK's.
+  const oauthRouter = Router();
+  attachConsentRoutes(oauthRouter, oauthProvider);
+  app.use(oauthRouter);
+
+  // SDK's auth router provides /token, /register, /.well-known/* — for
+  // /authorize, we already attached our own above which returns the consent
+  // page. The SDK router's /authorize never gets hit because Express matches
+  // ours first.
+  app.use(
+    mcpAuthRouter({
+      provider: oauthProvider,
+      issuerUrl,
+      resourceName: "Goldman Simpro MCP",
+    }),
+  );
 
   app.get("/healthz", (_req, res) => {
     res.json({

@@ -1,0 +1,428 @@
+// OAuth 2.0 server-side implementation for the Simpro MCP server.
+//
+// Why we need this: Claude Desktop's "Custom Connector" feature does not use
+// static bearer tokens directly — it requires the MCP server to implement
+// the OAuth 2.1 authorization flow (Authorization Code with PKCE +
+// Dynamic Client Registration), per the MCP Authorization spec.
+//
+// Our pragmatic implementation:
+//   - The user already has a bearer token (smcp_xxx) created by add-user.sh
+//   - We use that same token AS the OAuth access_token (no separate token
+//     issuance — the user's bearer IS the access_token)
+//   - The /authorize step shows a small consent page where the user
+//     pastes their bearer to prove identity (one-time per Claude Desktop
+//     install, then it sticks)
+//   - /token exchanges the auth code for the same bearer
+//   - Subsequent MCP requests authenticate with `Authorization: Bearer <smcp_xxx>`
+//   - verifyAccessToken() looks up the bearer in tokens.json
+//
+// Result: Claude Desktop's OAuth flow completes successfully, but no
+// real account/login system is needed — the bearer token is the credential.
+
+import { randomUUID, randomBytes, createHash } from "node:crypto";
+import { Request, Response, Router } from "express";
+import {
+  OAuthServerProvider,
+  AuthorizationParams,
+} from "@modelcontextprotocol/sdk/server/auth/provider.js";
+import { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js";
+import {
+  OAuthClientInformationFull,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js";
+import { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
+import { authenticate } from "./tokens.js";
+import { log } from "../logger.js";
+
+// ---------------------------------------------------------------------------
+// In-memory clients store. Claude Desktop registers itself dynamically; we
+// accept any client. There's no need to persist client registrations across
+// restarts because Claude Desktop re-registers when needed.
+// ---------------------------------------------------------------------------
+
+class GoldmanClientsStore implements OAuthRegisteredClientsStore {
+  private clients = new Map<string, OAuthClientInformationFull>();
+
+  async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
+    return this.clients.get(clientId);
+  }
+
+  async registerClient(client: OAuthClientInformationFull): Promise<OAuthClientInformationFull> {
+    this.clients.set(client.client_id, client);
+    log.info(`OAuth client registered: ${client.client_id} (${client.client_name ?? "unnamed"})`);
+    return client;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// In-memory auth code store. Each authorization code is one-time-use, maps
+// to (client, requested params, the user's bearer token). Codes expire
+// after 10 min.
+// ---------------------------------------------------------------------------
+
+interface AuthCodeRecord {
+  client: OAuthClientInformationFull;
+  params: AuthorizationParams;
+  userToken: string; // The smcp_xxx bearer
+  expiresAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// The provider implementation
+// ---------------------------------------------------------------------------
+
+export class GoldmanOAuthProvider implements OAuthServerProvider {
+  public readonly clientsStore = new GoldmanClientsStore();
+  private codes = new Map<string, AuthCodeRecord>();
+  // Pending authorization requests, keyed by a session ID we put in a cookie.
+  // When the user comes back from the consent page, we look up the original
+  // OAuth params here.
+  private pendingAuth = new Map<
+    string,
+    {
+      client: OAuthClientInformationFull;
+      params: AuthorizationParams;
+      expiresAt: number;
+    }
+  >();
+
+  constructor(private readonly tokensFile: string) {}
+
+  /**
+   * Called by the SDK's /authorize handler. We need to either:
+   *   - Issue a code and redirect (if the user is already authenticated), or
+   *   - Show a consent UI for them to authenticate, then come back here
+   *
+   * The router's `authorize` handler doesn't pass us the express Request, only
+   * Response. So we can't read cookies here. We work around this by NOT using
+   * the SDK's /authorize handler directly — instead we register our own
+   * /authorize and /authorize/consent routes (see attachOAuthRoutes below)
+   * and call this method internally only when the user has authenticated.
+   *
+   * The router's other handlers (token, register, discovery) we DO use.
+   */
+  async authorize(
+    client: OAuthClientInformationFull,
+    params: AuthorizationParams,
+    res: Response,
+  ): Promise<void> {
+    // This is called only after we've authenticated the user out-of-band.
+    // The userToken is set on res.locals by our consent handler before
+    // calling this.
+    const userToken = (res.locals as { userToken?: string }).userToken;
+    if (!userToken) {
+      throw new Error("authorize() called without an authenticated user — this is a bug");
+    }
+
+    const code = randomBytes(32).toString("base64url");
+    this.codes.set(code, {
+      client,
+      params,
+      userToken,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10 min
+    });
+
+    if (!client.redirect_uris.includes(params.redirectUri)) {
+      throw new Error(`Unregistered redirect_uri: ${params.redirectUri}`);
+    }
+
+    const target = new URL(params.redirectUri);
+    target.searchParams.set("code", code);
+    if (params.state !== undefined) target.searchParams.set("state", params.state);
+    log.info(`OAuth code issued for client ${client.client_id}, redirecting to ${target.host}`);
+    res.redirect(target.toString());
+  }
+
+  async challengeForAuthorizationCode(
+    _client: OAuthClientInformationFull,
+    authorizationCode: string,
+  ): Promise<string> {
+    const data = this.codes.get(authorizationCode);
+    if (!data) throw new Error("Invalid authorization code");
+    return data.params.codeChallenge;
+  }
+
+  async exchangeAuthorizationCode(
+    client: OAuthClientInformationFull,
+    authorizationCode: string,
+    _codeVerifier?: string,
+    _redirectUri?: string,
+    _resource?: URL,
+  ): Promise<OAuthTokens> {
+    const data = this.codes.get(authorizationCode);
+    if (!data) throw new Error("Invalid authorization code");
+    if (Date.now() > data.expiresAt) {
+      this.codes.delete(authorizationCode);
+      throw new Error("Authorization code expired");
+    }
+    if (data.client.client_id !== client.client_id) {
+      throw new Error("Code was not issued to this client");
+    }
+
+    // Single-use: delete after exchange
+    this.codes.delete(authorizationCode);
+
+    // The access token is the user's existing bearer token. No expiration
+    // on our side — bearer is rotated by add-user.sh / revoke-user.sh.
+    return {
+      access_token: data.userToken,
+      token_type: "Bearer",
+      // No refresh_token issued; if access_token is revoked the user
+      // re-runs the OAuth flow (Claude Desktop will re-prompt automatically).
+    };
+  }
+
+  async exchangeRefreshToken(): Promise<OAuthTokens> {
+    throw new Error("Refresh tokens are not supported. Re-authorize via /authorize.");
+  }
+
+  async verifyAccessToken(token: string): Promise<AuthInfo> {
+    // The access_token IS one of our smcp_xxx bearer tokens.
+    const auth = authenticate(this.tokensFile, `Bearer ${token}`);
+    if (!auth.ok) {
+      throw new Error(auth.reason);
+    }
+    return {
+      token,
+      clientId: "claude-desktop",
+      scopes: [],
+      // Pass the user record through so the downstream MCP handler can use it.
+      extra: {
+        userName: auth.record.name,
+        simproApiKey: auth.record.simproApiKey,
+        companyAccess: auth.record.companyAccess,
+        writeEnabled: auth.record.writeEnabled === true,
+      },
+    };
+  }
+
+  // ---- consent flow helpers (called from custom routes below) ----
+
+  /**
+   * Called by GET /authorize. Stores the pending OAuth request in memory
+   * keyed by a session ID we put in a cookie, then returns the consent HTML.
+   */
+  beginPending(
+    client: OAuthClientInformationFull,
+    params: AuthorizationParams,
+  ): string {
+    const sessionId = randomUUID();
+    this.pendingAuth.set(sessionId, {
+      client,
+      params,
+      expiresAt: Date.now() + 10 * 60 * 1000,
+    });
+    return sessionId;
+  }
+
+  consumePending(sessionId: string): {
+    client: OAuthClientInformationFull;
+    params: AuthorizationParams;
+  } | undefined {
+    const data = this.pendingAuth.get(sessionId);
+    if (!data) return undefined;
+    if (Date.now() > data.expiresAt) {
+      this.pendingAuth.delete(sessionId);
+      return undefined;
+    }
+    this.pendingAuth.delete(sessionId);
+    return data;
+  }
+
+  /**
+   * Validate a user-submitted bearer token against tokens.json.
+   * Returns true + token if valid, false otherwise.
+   */
+  validateUserToken(token: string): boolean {
+    const auth = authenticate(this.tokensFile, `Bearer ${token}`);
+    return auth.ok;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HTML for the consent page. Minimal, inline CSS, no JavaScript.
+// ---------------------------------------------------------------------------
+
+function consentPage(opts: {
+  sessionId: string;
+  clientName: string;
+  errorMessage?: string;
+}): string {
+  const { sessionId, clientName, errorMessage } = opts;
+  const safeClient = clientName
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .slice(0, 100);
+  const errBlock = errorMessage
+    ? `<div class="err">${errorMessage
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")}</div>`
+    : "";
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Goldman Simpro MCP - authorize</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+         background:#0f4c75; color:#fff; margin:0; padding:0; min-height:100vh;
+         display:flex; align-items:center; justify-content:center; }
+  .card { background:#fff; color:#222; max-width:480px; width:90%;
+          padding:32px; border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+  h1 { margin:0 0 8px; font-size:20px; color:#0f4c75; }
+  .sub { color:#666; font-size:14px; margin-bottom:24px; }
+  .client { background:#eef4fb; padding:8px 12px; border-radius:4px;
+            font-size:13px; margin-bottom:16px; }
+  label { display:block; margin-bottom:8px; font-weight:600; font-size:14px; }
+  input[type=password] { width:100%; padding:10px; box-sizing:border-box;
+                          border:1px solid #ccc; border-radius:4px; font-size:14px;
+                          font-family: monospace; }
+  button { width:100%; padding:12px; background:#0f4c75; color:#fff;
+           border:none; border-radius:4px; font-size:15px; font-weight:600;
+           cursor:pointer; margin-top:16px; }
+  button:hover { background:#1b5e9c; }
+  .err { background:#fff3f3; color:#c0392b; padding:10px; border-radius:4px;
+         margin-bottom:16px; font-size:13px; border:1px solid #f0c4c0; }
+  .help { font-size:12px; color:#888; margin-top:16px; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Goldman Simpro AI tool</h1>
+  <div class="sub">Authorize this client to access Simpro on your behalf.</div>
+  <div class="client">Client: <b>${safeClient}</b></div>
+  ${errBlock}
+  <form method="POST" action="/authorize/consent">
+    <input type="hidden" name="session" value="${sessionId}">
+    <label for="token">Your bearer token (smcp_...)</label>
+    <input type="password" id="token" name="token" autocomplete="off"
+           placeholder="smcp_..." required autofocus>
+    <button type="submit">Authorize</button>
+  </form>
+  <div class="help">
+    Paste the bearer token IT gave you. This is the same token you pasted into Claude Desktop's
+    Custom Connector dialog. After this one-time authorization, Claude Desktop will use the token
+    automatically — you won't see this page again on this device.
+  </div>
+</div>
+</body>
+</html>`;
+}
+
+// ---------------------------------------------------------------------------
+// Express routes — call this from server.ts.
+// We attach our own /authorize + /authorize/consent routes in addition to
+// the SDK's mcpAuthRouter (which provides /token, /register, /.well-known/*).
+// ---------------------------------------------------------------------------
+
+export function attachConsentRoutes(
+  router: Router,
+  provider: GoldmanOAuthProvider,
+): void {
+  // Custom GET /authorize — overrides the SDK's. Renders the consent page.
+  router.get("/authorize", async (req: Request, res: Response) => {
+    try {
+      const params = parseAuthorizeQuery(req);
+      const client = await provider.clientsStore.getClient(params.clientId);
+      if (!client) {
+        res.status(400).type("text/plain").send(`Unknown client_id: ${params.clientId}`);
+        return;
+      }
+      // Validate redirect_uri up-front so user isn't tricked by a malicious one
+      if (!client.redirect_uris.includes(params.redirectUri)) {
+        res.status(400).type("text/plain").send("Unregistered redirect_uri");
+        return;
+      }
+      const sessionId = provider.beginPending(client, params);
+      res.type("text/html").send(
+        consentPage({
+          sessionId,
+          clientName: client.client_name ?? client.client_id,
+        }),
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(400).type("text/plain").send(`Authorize error: ${msg}`);
+    }
+  });
+
+  // POST /authorize/consent — user has submitted their bearer token.
+  router.post("/authorize/consent", async (req: Request, res: Response) => {
+    const { session, token } = req.body as { session?: string; token?: string };
+    if (!session || !token) {
+      res.status(400).type("text/plain").send("Missing fields");
+      return;
+    }
+    const pending = provider.consumePending(session);
+    if (!pending) {
+      res.status(400).type("text/plain").send(
+        "Authorization session expired or invalid — please go back to Claude Desktop and click Connect again.",
+      );
+      return;
+    }
+    if (!provider.validateUserToken(token)) {
+      // Re-render the consent page with an error
+      const newSessionId = provider.beginPending(pending.client, pending.params);
+      res.type("text/html").send(
+        consentPage({
+          sessionId: newSessionId,
+          clientName: pending.client.client_name ?? pending.client.client_id,
+          errorMessage: "That token is not registered. Check with IT and try again.",
+        }),
+      );
+      return;
+    }
+    // Stash the user token on res.locals and call provider.authorize()
+    (res.locals as { userToken: string }).userToken = token;
+    await provider.authorize(pending.client, pending.params, res);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Helper: parse the OAuth /authorize query parameters
+// ---------------------------------------------------------------------------
+
+function parseAuthorizeQuery(req: Request): AuthorizationParams & { clientId: string } {
+  const q = req.query;
+  const responseType = q.response_type;
+  if (responseType !== "code") {
+    throw new Error(`Unsupported response_type: ${responseType}`);
+  }
+  const clientId = oneStr(q.client_id);
+  if (!clientId) throw new Error("Missing client_id");
+  const redirectUri = oneStr(q.redirect_uri);
+  if (!redirectUri) throw new Error("Missing redirect_uri");
+  const codeChallenge = oneStr(q.code_challenge);
+  if (!codeChallenge) throw new Error("Missing code_challenge (PKCE required)");
+  const codeChallengeMethod = oneStr(q.code_challenge_method);
+  if (codeChallengeMethod && codeChallengeMethod !== "S256") {
+    throw new Error("Only code_challenge_method=S256 is supported");
+  }
+  return {
+    clientId,
+    redirectUri,
+    codeChallenge,
+    state: oneStr(q.state),
+    scopes: oneStr(q.scope)?.split(" ").filter(Boolean),
+    resource: q.resource ? new URL(oneStr(q.resource)!) : undefined,
+  };
+}
+
+function oneStr(v: unknown): string | undefined {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v) && typeof v[0] === "string") return v[0];
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Expose the SDK helpers for code-challenge validation, used by the SDK's
+// own /token handler. We don't need to call this directly — just exporting
+// in case downstream code wants it.
+// ---------------------------------------------------------------------------
+
+export function verifyPkce(codeVerifier: string, codeChallenge: string): boolean {
+  const computed = createHash("sha256").update(codeVerifier).digest("base64url");
+  return computed === codeChallenge;
+}
