@@ -1,0 +1,47 @@
+[Unit]
+Description=Simpro MCP Server (HTTP transport, Tailscale-bound)
+Documentation=https://github.com/haylazF16/SimProMCP
+# Wait for the network and Tailscale to be up — we bind to the Tailscale IP,
+# which only exists once tailscaled is connected.
+After=network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
+
+[Service]
+Type=simple
+User=simpro-mcp
+Group=simpro-mcp
+WorkingDirectory=/opt/simpro-mcp
+EnvironmentFile=/opt/simpro-mcp/.env
+ExecStart=/usr/bin/node /opt/simpro-mcp/dist/index.js
+
+# Auto-restart on crash (every 5s, no upper limit)
+Restart=always
+RestartSec=5
+
+# Logs go to journald — view with: sudo journalctl -u simpro-mcp -f
+StandardOutput=journal
+StandardError=journal
+
+# --- Security hardening ---
+# Run with no extra privileges
+NoNewPrivileges=true
+# Use a private /tmp so other processes can't see ours
+PrivateTmp=true
+# Filesystem is read-only except for the install dir
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/simpro-mcp
+# Don't expose kernel internals
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# Restrict address families to what we need (IPv4/IPv6 + UNIX sockets)
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Don't allow new namespaces from inside the service
+RestrictNamespaces=true
+# Lock memory protections
+MemoryDenyWriteExecute=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

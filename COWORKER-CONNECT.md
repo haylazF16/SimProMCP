@@ -1,27 +1,53 @@
 # Connect to the Goldman Simpro AI tool
 
 This guide is for office staff connecting Claude Desktop to the office
-Simpro tool. **No coding, no installations.** About 5 minutes total.
-
-> **Heads up:** this works only when you're on the **office Wi-Fi or VPN**.
-> If you need to use the tool from home without VPN, ask IT for the
-> alternative individual setup instead.
+Simpro tool. **One small install (Tailscale), then everything else is just
+copying URLs.** About 10 minutes total. Works from office, home, café —
+anywhere with internet.
 
 ## Architecture (one diagram)
 
 ```
-┌─────────────┐    HTTP    ┌──────────────────┐   HTTPS    ┌──────────────┐
-│  Your PC    │ ─────────▶ │  Office Server   │ ─────────▶ │ Simpro Cloud │
-│  Claude     │   (LAN)    │ 192.168.88.113   │ uses YOUR  │ goldman      │
-│  Desktop    │  port 3001 │ tokens.json      │ Simpro key │ plumbing     │
-│  + smcp_*   │            │ audit.log        │            │ services     │
-│   token     │            │                  │            │ .simprosuite │
-└─────────────┘            └──────────────────┘            └──────────────┘
+┌─────────────┐ Tailscale (encrypted) ┌──────────────────┐  HTTPS   ┌──────────────┐
+│  Your PC    │ ────────────────────▶ │  Office Server   │ ───────▶ │ Simpro Cloud │
+│  Claude     │  goldman-ubuntu :3001 │  /opt/simpro-mcp │ uses YOUR│ goldman      │
+│  Desktop    │                       │  tokens.json     │ Simpro   │ plumbing     │
+│  + smcp_*   │                       │  audit.log       │ key      │ services     │
+│   token     │                       │                  │          │ .simprosuite │
+└─────────────┘                       └──────────────────┘          └──────────────┘
+   ↑
+Tailscale running on your PC
+provides the secure tunnel
 ```
 
-Your Claude Desktop talks to the office server. The office server uses
-**your** Simpro API key when calling Simpro, so Simpro's audit log shows
-**your** name on every action.
+Tailscale is a small free app that creates an encrypted private network
+between your PC and the office server. Once installed, the URL
+`http://goldman-ubuntu:3001/...` works exactly the same whether you're at
+your office desk, working from home, or on hotel Wi-Fi. No VPN to "connect"
+each time — Tailscale just runs quietly in the background.
+
+The office server uses **your** Simpro API key when calling Simpro, so
+Simpro's audit log shows **your** name on every action.
+
+---
+
+## Part 0 — Install Tailscale on your PC (one-time, ~3 minutes)
+
+You only do this once per device. Skip this part if Tailscale is already
+installed and showing "Connected" in your system tray.
+
+1. Go to <https://tailscale.com/download/windows> (or `/macos` if Mac).
+2. Download and run the installer. Click Next, Next, Install.
+3. After install, Tailscale opens a browser tab asking you to **sign in**.
+   Sign in with the **Goldman Tailscale account** (IT will tell you which
+   one — usually the shared admin account, or your personal one if added
+   to the team).
+4. Once signed in, the Tailscale icon appears in your system tray (bottom
+   right of your screen, near the clock). Right-click it — it should say
+   **"Connected"** with an IP starting with `100.x.y.z`.
+
+That's it. Tailscale runs quietly in the background from now on. You can
+forget it exists.
 
 ---
 
@@ -55,8 +81,8 @@ In a direct message (not a group chat), send IT:
 
 IT will reply with three things:
 
-- **Plumbing URL** — looks like `http://192.168.88.113:3001/mcp/plumbing`
-- **Energy URL** — looks like `http://192.168.88.113:3001/mcp/energy`
+- **Plumbing URL** — looks like `http://goldman-ubuntu:3001/mcp/plumbing`
+- **Energy URL** — looks like `http://goldman-ubuntu:3001/mcp/energy`
 - **Your personal access token** — a long random string starting with
   `smcp_...`
 
