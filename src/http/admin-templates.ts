@@ -17,7 +17,12 @@ export const ADMIN_HEADERS = {
 };
 
 function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /** SHA-256 hash of a Simpro API key (used as URL-safe identifier). */
@@ -85,7 +90,7 @@ export function renderDashboard(adminName: string, users: Array<{ smcpToken: str
               <button>${toggleLabel}</button>
             </form>
             <form method="POST" action="/admin/users/${hash}/revoke"
-                  onsubmit="return confirm('Revoke ${esc(u.record.name)}?');">
+                  class="confirm-form" data-confirm="Revoke ${esc(u.record.name)}?">
               <button class="danger">Revoke</button>
             </form>
           </td>
@@ -103,6 +108,13 @@ ${NAV}
   </tr></thead>
   <tbody>${rows}</tbody>
 </table>
+<script>
+document.querySelectorAll('form.confirm-form').forEach(function(f) {
+  f.addEventListener('submit', function(e) {
+    if (!confirm(f.dataset.confirm)) e.preventDefault();
+  });
+});
+</script>
 </body></html>`;
 }
 
