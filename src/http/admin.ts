@@ -140,7 +140,7 @@ export function attachAdminRoutes(router: Router, config: Config): void {
     // Max-Age 24h — admin re-logs in daily.
     res.set(
       "Set-Cookie",
-      `${ADMIN_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400`,
+      `${ADMIN_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/admin; Max-Age=86400`,
     );
     log.info(`admin.action actor=${sanitizeForLog(resolved.admin.name)} action=login`);
     res.redirect("/admin");
@@ -154,7 +154,7 @@ export function attachAdminRoutes(router: Router, config: Config): void {
       : null;
     res.set(
       "Set-Cookie",
-      `${ADMIN_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`,
+      `${ADMIN_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/admin; Max-Age=0`,
     );
     if (who && who.ok) {
       log.info(`admin.action actor=${sanitizeForLog(who.admin.name)} action=logout`);
