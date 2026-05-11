@@ -5,13 +5,28 @@
 
 import { verifyApiKey, probeCompany } from "../simpro/probe.js";
 import {
-  addUser,
+  addUserIfAbsent,
   lookupBySimproKey,
   removeUser,
   type CompanyKey,
   type TokenRecord,
   COMPANY_IDS,
 } from "./tokens.js";
+
+/**
+ * Probe Simpro for both companies in parallel and return which the key
+ * has access to. Shared by enrollUser and probeForFrontend.
+ */
+async function detectCompanyAccess(simproBaseUrl: string, simproApiKey: string): Promise<CompanyKey[]> {
+  const [plumbing, energy] = await Promise.all([
+    probeCompany(simproBaseUrl, simproApiKey, COMPANY_IDS.plumbing),
+    probeCompany(simproBaseUrl, simproApiKey, COMPANY_IDS.energy),
+  ]);
+  const out: CompanyKey[] = [];
+  if (plumbing.granted) out.push("plumbing");
+  if (energy.granted) out.push("energy");
+  return out;
+}
 
 export type EnrollReason =
   | "invalid_key"
@@ -56,29 +71,14 @@ export async function enrollUser(input: EnrollInput): Promise<EnrollResult> {
     return { ok: false, reason: verify.reason ?? "unexpected_status" };
   }
 
-  // 2. Detect company access (both companies probed)
-  const companyAccess: CompanyKey[] = [];
-  const plumbing = await probeCompany(input.simproBaseUrl, input.simproApiKey, COMPANY_IDS.plumbing);
-  if (plumbing.granted) companyAccess.push("plumbing");
-  const energy = await probeCompany(input.simproBaseUrl, input.simproApiKey, COMPANY_IDS.energy);
-  if (energy.granted) companyAccess.push("energy");
+  // 2. Detect company access (both companies probed in parallel)
+  const companyAccess = await detectCompanyAccess(input.simproBaseUrl, input.simproApiKey);
   if (companyAccess.length === 0) {
     return { ok: false, reason: "no_company_access" };
   }
 
-  // 3. Idempotent: return existing record if we've seen this Simpro key
-  const existing = lookupBySimproKey(input.tokensFile, input.simproApiKey);
-  if (existing) {
-    return {
-      ok: true,
-      smcpToken: existing.smcpToken,
-      record: existing.record,
-      wasIdempotent: true,
-    };
-  }
-
-  // 4. Create new record. writeEnabled defaults true per spec section 3.
-  const created = await addUser(input.tokensFile, {
+  // 3. Atomic idempotent create-or-find (handles concurrent enroll with same key).
+  const result = await addUserIfAbsent(input.tokensFile, {
     name,
     simproApiKey: input.simproApiKey,
     companyAccess,
@@ -87,9 +87,9 @@ export async function enrollUser(input: EnrollInput): Promise<EnrollResult> {
   });
   return {
     ok: true,
-    smcpToken: created.smcpToken,
-    record: created.record,
-    wasIdempotent: false,
+    smcpToken: result.smcpToken,
+    record: result.record,
+    wasIdempotent: !result.wasAbsent,
   };
 }
 
@@ -137,10 +137,6 @@ export async function probeForFrontend(input: ProbeFrontendInput): Promise<Probe
   if (!verify.valid) {
     return { valid: false, reason: verify.reason ?? "unexpected_status" };
   }
-  const companyAccess: CompanyKey[] = [];
-  const plumbing = await probeCompany(input.simproBaseUrl, input.simproApiKey, COMPANY_IDS.plumbing);
-  if (plumbing.granted) companyAccess.push("plumbing");
-  const energy = await probeCompany(input.simproBaseUrl, input.simproApiKey, COMPANY_IDS.energy);
-  if (energy.granted) companyAccess.push("energy");
+  const companyAccess = await detectCompanyAccess(input.simproBaseUrl, input.simproApiKey);
   return { valid: true, name: verify.name, companyAccess };
 }
