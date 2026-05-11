@@ -43,6 +43,7 @@ import {
 import { recordAudit } from "./audit.js";
 import { GoldmanOAuthProvider, attachConsentRoutes } from "./oauth.js";
 import { attachUnenrollRoutes } from "./unenroll.js";
+import { attachAdminRoutes } from "./admin.js";
 
 export interface RunHttpOptions {
   config: Config;
@@ -189,6 +190,18 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
   oauthRouter.post("/unenroll", unenrollLimiter);
   attachUnenrollRoutes(oauthRouter, config);
   app.use(oauthRouter);
+
+  const adminLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000,
+    limit: 60,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: "Too many admin requests.",
+  });
+  const adminRouter = Router();
+  adminRouter.use("/admin", adminLimiter);
+  attachAdminRoutes(adminRouter, config);
+  app.use(adminRouter);
 
   // SDK's auth router provides /token, /register, /.well-known/* — for
   // /authorize, we already attached our own above which returns the consent
