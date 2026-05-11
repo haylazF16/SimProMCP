@@ -4,6 +4,8 @@
 // them BEFORE the caller has a verified API key — there's no Config to bind
 // a SimproClient to yet.
 
+const FETCH_TIMEOUT_MS = 10_000;
+
 export interface VerifyResult {
   valid: boolean;
   /** Employee name if Simpro returned one. */
@@ -22,6 +24,8 @@ export interface VerifyResult {
 export async function verifyApiKey(baseUrl: string, apiKey: string): Promise<VerifyResult> {
   const url = `${baseUrl.replace(/\/+$/, "")}/api/v1.0/info/`;
   let res: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     res = await fetch(url, {
       method: "GET",
@@ -29,9 +33,12 @@ export async function verifyApiKey(baseUrl: string, apiKey: string): Promise<Ver
         "Authorization": `Bearer ${apiKey}`,
         "Accept": "application/json",
       },
+      signal: controller.signal,
     });
   } catch {
     return { valid: false, name: null, reason: "simpro_unreachable" };
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (res.status === 401 || res.status === 403) {
@@ -90,6 +97,8 @@ export interface ProbeCompanyResult {
 export async function probeCompany(baseUrl: string, apiKey: string, companyId: string): Promise<ProbeCompanyResult> {
   const url = `${baseUrl.replace(/\/+$/, "")}/api/v1.0/companies/${encodeURIComponent(companyId)}/jobs/?pageSize=1`;
   let res: Response;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     res = await fetch(url, {
       method: "GET",
@@ -97,9 +106,12 @@ export async function probeCompany(baseUrl: string, apiKey: string, companyId: s
         "Authorization": `Bearer ${apiKey}`,
         "Accept": "application/json",
       },
+      signal: controller.signal,
     });
   } catch {
     return { granted: false };
+  } finally {
+    clearTimeout(timeout);
   }
   return { granted: res.status >= 200 && res.status < 300 };
 }
