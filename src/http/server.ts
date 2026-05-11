@@ -100,6 +100,11 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
       origin: (origin, cb) => {
         // Same-origin / native-app requests have no Origin header — allow.
         if (!origin) return cb(null, true);
+        // Some browsers (Brave with strict shields, file:// pages, sandboxed
+        // iframes) send `Origin: null` on same-site form POSTs. Auth is
+        // enforced by the smcp_ cookie / Bearer token + SameSite=Strict, not
+        // by CORS, so allowing "null" here is safe.
+        if (origin === "null") return cb(null, true);
         if (allowedOrigins.has(origin)) return cb(null, true);
         // Localhost dev callbacks (any port).
         try {
