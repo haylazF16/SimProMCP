@@ -10,21 +10,14 @@ import { unenrollUser } from "./enroll.js";
 
 export function attachUnenrollRoutes(router: Router, config: Config): void {
   router.get("/unenroll", (_req, res) => {
-    res
-      .type("text/html")
-      .set(
-        "Content-Security-Policy",
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
-      )
-      .set("X-Frame-Options", "DENY")
-      .send(unenrollPage({}));
+    sendHtml(res, unenrollPage({}));
   });
 
   router.post("/unenroll", async (req: Request, res: Response) => {
     const body = req.body as { simpro_key?: string };
     const key = typeof body?.simpro_key === "string" ? body.simpro_key.trim() : "";
     if (key.length < 20) {
-      res.type("text/html").send(unenrollPage({ errorMessage: "Please paste a valid Simpro API key." }));
+      sendHtml(res, unenrollPage({ errorMessage: "Please paste a valid Simpro API key." }));
       return;
     }
     const result = await unenrollUser({
@@ -38,19 +31,19 @@ export function attachUnenrollRoutes(router: Router, config: Config): void {
         simpro_unreachable: "Couldn't reach Simpro to verify the key. Try again.",
         unexpected_status: "Unexpected response from Simpro. Try again.",
       };
-      res.type("text/html").send(unenrollPage({
+      sendHtml(res, unenrollPage({
         errorMessage: reasonMsg[result.reason] ?? `Error: ${result.reason}`,
       }));
       return;
     }
     log.info(`unenroll outcome=${result.removed ? "removed" : "no_match"}`);
-    res.type("text/html").send(unenrollResultPage(result.removed));
+    sendHtml(res, unenrollResultPage(result.removed));
   });
 }
 
 function unenrollPage(opts: { errorMessage?: string }): string {
   const err = opts.errorMessage
-    ? `<div class="err">${opts.errorMessage.replace(/</g, "&lt;")}</div>`
+    ? `<div class="err">${escapeHtml(opts.errorMessage)}</div>`
     : "";
   return `<!doctype html>
 <html lang="en">
@@ -111,4 +104,30 @@ function unenrollResultPage(removed: boolean): string {
 </style></head><body><div class="card">
 <h1>Done</h1><p>${msg}</p>
 </div></body></html>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Send an HTML response with the standard security headers for self-service
+ * pages. Used by both GET and POST render paths so protections don't depend
+ * on the entry point.
+ */
+function sendHtml(res: Response, html: string): void {
+  res
+    .type("text/html")
+    .set(
+      "Content-Security-Policy",
+      "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+    )
+    .set("X-Frame-Options", "DENY")
+    .set("Referrer-Policy", "no-referrer")
+    .send(html);
 }
