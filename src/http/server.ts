@@ -42,6 +42,7 @@ import {
 } from "./tokens.js";
 import { recordAudit } from "./audit.js";
 import { GoldmanOAuthProvider, attachConsentRoutes } from "./oauth.js";
+import { attachUnenrollRoutes } from "./unenroll.js";
 
 export interface RunHttpOptions {
   config: Config;
@@ -177,6 +178,16 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
   oauthRouter.post("/authorize/consent", consentLimiter);
   oauthRouter.post("/enroll/probe", probeLimiter);
   attachConsentRoutes(oauthRouter, oauthProvider, config);
+
+  const unenrollLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: "Too many attempts. Wait 15 minutes.",
+  });
+  oauthRouter.post("/unenroll", unenrollLimiter);
+  attachUnenrollRoutes(oauthRouter, config);
   app.use(oauthRouter);
 
   // SDK's auth router provides /token, /register, /.well-known/* — for
