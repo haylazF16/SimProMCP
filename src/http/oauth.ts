@@ -505,11 +505,18 @@ export function attachConsentRoutes(
       const sessionId = provider.beginPending(client, params);
       res
         .type("text/html")
-        // Tight CSP for the consent page: no scripts, only inline styles
-        // (we have a small <style> block), no external resources, no frames.
+        // CSP for the consent page. We allow:
+        //   - 'unsafe-inline' for <style> (inline CSS in the template)
+        //   - 'unsafe-inline' for <script> (inline JS for the live-probe AJAX)
+        //   - connect-src 'self' so the inline JS can fetch /enroll/probe
+        //   - form-action 'self' so the form POSTs to /authorize/consent
+        //   - frame-ancestors 'none' to block clickjacking
+        // The HTML is fully server-generated with proper escaping; no user content is
+        // interpolated into script context, so the script-src unsafe-inline relaxation
+        // doesn't open an XSS surface.
         .set(
           "Content-Security-Policy",
-          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+          "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'",
         )
         .set("X-Frame-Options", "DENY")
         .set("Referrer-Policy", "no-referrer")
