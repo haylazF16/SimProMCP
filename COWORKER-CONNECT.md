@@ -101,21 +101,30 @@ If both work — **you're set**. 🎉
 
 ---
 
-## Safety — what's on and off by default
+## Safety — what to know about writes
 
-When you connect for the first time, Claude can **read** Simpro data
-(search, view) but **cannot change anything**. This is on purpose.
+You can **read AND write** Simpro records from the moment you connect — the
+same as your access through Simpro's own web UI. The AI tool doesn't grant
+any extra permissions; it just exposes what your Simpro account already
+allows through a chat interface.
 
-If you need to create or update Simpro records, ask IT to enable writes
-on your account. Even when enabled:
+Two practical safety nets you should rely on:
 
-- Every write requires you to confirm before it happens.
-- The first dry-run period shows you exactly what would change before it
-  actually happens.
+1. **Every write asks you to confirm before it happens.** The tool tells you
+   exactly what it's about to do (job number, status change, line items,
+   etc.) and waits for your "yes." If you don't confirm, nothing changes
+   in Simpro.
 
-If anything ever feels off, **just stop using the tool** until you've
-talked to IT — there's no way to make permanent changes accidentally
-during the safe period.
+2. **Read carefully before confirming.** AI tools occasionally misinterpret
+   ambiguous requests. If something looks wrong in the preview — different
+   customer, wrong line item, unexpected status — say "no" or "let me
+   check" and the action is cancelled.
+
+If you want to operate in a stricter mode (e.g., simulate writes without
+actually changing anything), ask IT to enable dry-run for your account.
+Dry-run shows the planned change without committing.
+
+If anything ever feels wrong, **just stop using the tool** and message IT.
 
 ---
 
