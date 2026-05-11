@@ -251,14 +251,6 @@ export class GoldmanOAuthProvider implements OAuthServerProvider {
     return data;
   }
 
-  /**
-   * Validate a user-submitted bearer token against tokens.json.
-   * Returns true + token if valid, false otherwise.
-   */
-  validateUserToken(token: string): boolean {
-    const auth = authenticate(this.tokensFile, `Bearer ${token}`);
-    return auth.ok;
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -503,29 +495,10 @@ export function attachConsentRoutes(
         log.info(`OAuth client redirect_uri added: ${params.clientId} += ${params.redirectUri}`);
       }
       const sessionId = provider.beginPending(client, params);
-      res
-        .type("text/html")
-        // CSP for the consent page. We allow:
-        //   - 'unsafe-inline' for <style> (inline CSS in the template)
-        //   - 'unsafe-inline' for <script> (inline JS for the live-probe AJAX)
-        //   - connect-src 'self' so the inline JS can fetch /enroll/probe
-        //   - form-action 'self' so the form POSTs to /authorize/consent
-        //   - frame-ancestors 'none' to block clickjacking
-        // The HTML is fully server-generated with proper escaping; no user content is
-        // interpolated into script context, so the script-src unsafe-inline relaxation
-        // doesn't open an XSS surface.
-        .set(
-          "Content-Security-Policy",
-          "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'",
-        )
-        .set("X-Frame-Options", "DENY")
-        .set("Referrer-Policy", "no-referrer")
-        .send(
-          consentPage({
-            sessionId,
-            clientName: client.client_name ?? client.client_id,
-          }),
-        );
+      renderConsentResponse(res, {
+        sessionId,
+        clientName: client.client_name ?? client.client_id,
+      });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(400).type("text/plain").send(`Authorize error: ${msg}`);
@@ -589,19 +562,19 @@ export function attachConsentRoutes(
         unexpected_status: "Simpro returned an unexpected response. Try again.",
       };
       const newSessionId = provider.beginPending(pending.client, pending.params);
-      res.type("text/html").send(
-        consentPage({
-          sessionId: newSessionId,
-          clientName: pending.client.client_name ?? pending.client.client_id,
-          errorMessage: reasonMsg[result.reason] ?? `Error: ${result.reason}`,
-          prefilledName: name.trim(),
-        }),
-      );
+      renderConsentResponse(res, {
+        sessionId: newSessionId,
+        clientName: pending.client.client_name ?? pending.client.client_id,
+        errorMessage: reasonMsg[result.reason] ?? `Error: ${result.reason}`,
+        prefilledName: name.trim(),
+      });
       return;
     }
 
-    // Audit-log the enrollment outcome.
-    log.info(`enroll success: name=${result.record.name} companies=${result.record.companyAccess.join(",")} idempotent=${result.wasIdempotent}`);
+    // Audit-log the enrollment outcome. Sanitize user-typed name to prevent
+    // log injection (a name containing \n/\r could forge log lines).
+    const safeName = oneLine(result.record.name);
+    log.info(`enroll success: name=${safeName} companies=${result.record.companyAccess.join(",")} idempotent=${result.wasIdempotent}`);
 
     // Stash the issued smcp_ token on res.locals and complete the OAuth handshake.
     (res.locals as { userToken: string }).userToken = result.smcpToken;
@@ -654,4 +627,41 @@ function oneStr(v: unknown): string | undefined {
 export function verifyPkce(codeVerifier: string, codeChallenge: string): boolean {
   const computed = createHash("sha256").update(codeVerifier).digest("base64url");
   return computed === codeChallenge;
+}
+
+// ---------------------------------------------------------------------------
+// Shared consent-page renderer. Both the GET /authorize success path and the
+// POST /authorize/consent error-rerender path go through here so the security
+// headers (CSP, X-Frame-Options, Referrer-Policy) apply uniformly.
+//
+// CSP for the consent page. We allow:
+//   - 'unsafe-inline' for <style> (inline CSS in the template)
+//   - 'unsafe-inline' for <script> (inline JS for the live-probe AJAX)
+//   - connect-src 'self' so the inline JS can fetch /enroll/probe
+//   - form-action 'self' so the form POSTs to /authorize/consent
+//   - frame-ancestors 'none' to block clickjacking
+// The HTML is fully server-generated with proper escaping; no user content is
+// interpolated into script context, so the script-src unsafe-inline relaxation
+// doesn't open an XSS surface.
+// ---------------------------------------------------------------------------
+
+function renderConsentResponse(
+  res: Response,
+  opts: { sessionId: string; clientName: string; errorMessage?: string; prefilledName?: string },
+): void {
+  res
+    .type("text/html")
+    .set(
+      "Content-Security-Policy",
+      "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'",
+    )
+    .set("X-Frame-Options", "DENY")
+    .set("Referrer-Policy", "no-referrer")
+    .send(consentPage(opts));
+}
+
+// Collapse newlines/tabs and cap length — used to sanitize user-typed values
+// before they're embedded in log lines (log-injection prevention).
+function oneLine(s: string): string {
+  return s.replace(/[\r\n\t]/g, " ").slice(0, 100);
 }
