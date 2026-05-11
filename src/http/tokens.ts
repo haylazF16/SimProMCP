@@ -41,6 +41,10 @@ export interface TokenRecord {
   writeEnabled?: boolean;
   createdAt?: string;
   lastUsedAt?: string;
+  /** Provenance hint; defaults to "add-user.sh" when absent (back-compat). */
+  enrolledVia?: "self-service" | "manual" | "add-user.sh";
+  /** Admin flag for dashboard access. Defaults false when absent. */
+  isAdmin?: boolean;
 }
 
 export interface TokensFile {
@@ -87,6 +91,17 @@ function validateRecord(token: string, rec: unknown): TokenRecord {
       throw new Error(`tokens.json: record for ${token.slice(0, 8)}... has invalid companyAccess value: ${JSON.stringify(c)}`);
     }
   }
+  // New: enrolledVia is optional but must be one of the known values if present.
+  if (r.enrolledVia !== undefined &&
+      r.enrolledVia !== "self-service" &&
+      r.enrolledVia !== "manual" &&
+      r.enrolledVia !== "add-user.sh") {
+    throw new Error(`tokens.json: record for ${token.slice(0, 8)}... has invalid enrolledVia: ${JSON.stringify(r.enrolledVia)}`);
+  }
+  // New: isAdmin is optional, must be boolean if present.
+  if (r.isAdmin !== undefined && typeof r.isAdmin !== "boolean") {
+    throw new Error(`tokens.json: record for ${token.slice(0, 8)}... has non-boolean isAdmin: ${JSON.stringify(r.isAdmin)}`);
+  }
   return {
     name: r.name,
     simproApiKey: r.simproApiKey,
@@ -94,6 +109,8 @@ function validateRecord(token: string, rec: unknown): TokenRecord {
     writeEnabled: r.writeEnabled === true,
     createdAt: typeof r.createdAt === "string" ? r.createdAt : undefined,
     lastUsedAt: typeof r.lastUsedAt === "string" ? r.lastUsedAt : undefined,
+    enrolledVia: r.enrolledVia as TokenRecord["enrolledVia"],
+    isAdmin: r.isAdmin === true,
   };
 }
 
@@ -214,4 +231,71 @@ export function touchTokenLastUsed(filePath: string, token: string): void {
       // Best-effort.
     }
   });
+}
+
+/**
+ * Find a user record by their Simpro API key (the long-term identity).
+ * Used for idempotent re-enrollment. Linear scan — fine at Goldman scale (<50 users).
+ */
+export function lookupBySimproKey(
+  filePath: string,
+  simproApiKey: string,
+): { smcpToken: string; record: TokenRecord } | null {
+  const store = loadTokens(filePath);
+  for (const [smcpToken, record] of Object.entries(store.tokens)) {
+    if (record.simproApiKey === simproApiKey) {
+      return { smcpToken, record };
+    }
+  }
+  return null;
+}
+
+/**
+ * Insert a new record. Generates a fresh smcp_ token and returns it.
+ * Caller is responsible for checking idempotency (call lookupBySimproKey first).
+ */
+export function addUser(
+  filePath: string,
+  partial: Omit<TokenRecord, "createdAt" | "lastUsedAt">,
+): { smcpToken: string; record: TokenRecord } {
+  const smcpToken = generateToken();
+  const record: TokenRecord = {
+    ...partial,
+    createdAt: new Date().toISOString(),
+  };
+  // Bypass the mtime cache so we read the latest disk state before mutating.
+  cache = null;
+  const store = loadTokens(filePath);
+  store.tokens[smcpToken] = record;
+  saveTokens(filePath, store);
+  return { smcpToken, record };
+}
+
+/**
+ * Delete a record by smcp_ token. Returns true if it existed and was removed.
+ */
+export function removeUser(filePath: string, smcpToken: string): boolean {
+  cache = null;
+  const store = loadTokens(filePath);
+  if (!(smcpToken in store.tokens)) return false;
+  delete store.tokens[smcpToken];
+  saveTokens(filePath, store);
+  return true;
+}
+
+/**
+ * Merge a partial patch into an existing record. Returns true if the record
+ * exists. Used by the admin dashboard for "toggle write access" etc.
+ */
+export function updateUser(
+  filePath: string,
+  smcpToken: string,
+  patch: Partial<Omit<TokenRecord, "simproApiKey" | "createdAt">>,
+): boolean {
+  cache = null;
+  const store = loadTokens(filePath);
+  if (!(smcpToken in store.tokens)) return false;
+  store.tokens[smcpToken] = { ...store.tokens[smcpToken], ...patch };
+  saveTokens(filePath, store);
+  return true;
 }
