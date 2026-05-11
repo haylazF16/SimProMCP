@@ -25,6 +25,7 @@
 
 import express, { type Request, type Response, type NextFunction, Router } from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
@@ -74,9 +75,42 @@ function describeRpcMethod(body: unknown): { method: string; toolName?: string }
 export async function runHttp({ config }: RunHttpOptions): Promise<void> {
   const app = express();
 
+  // We bind to 127.0.0.1 (or a Tailscale IP) and sit behind Tailscale Funnel,
+  // which terminates TLS and forwards plaintext HTTP to us with X-Forwarded-*
+  // headers. Trust ONLY loopback hops — `true` would honour any hop and let
+  // a malicious upstream spoof client IP for rate-limiting.
+  // (express-rate-limit needs this to read req.ip without throwing.)
+  app.set("trust proxy", "loopback");
+
+  // CORS: lock down to known origins. Browsers shouldn't be hitting most of
+  // these endpoints (Claude Desktop is a native app), but the consent page
+  // is browser-rendered so we allow same-origin and Anthropic's domains.
+  // /healthz stays open below for ops tooling.
+  const allowedOrigins = new Set<string>([
+    "https://claude.ai",
+    "https://www.claude.ai",
+  ]);
+  if (config.SIMPRO_PUBLIC_BASE_URL) {
+    try { allowedOrigins.add(new URL(config.SIMPRO_PUBLIC_BASE_URL).origin); } catch { /* ignore */ }
+  }
   app.use(
     cors({
-      origin: "*",
+      origin: (origin, cb) => {
+        // Same-origin / native-app requests have no Origin header — allow.
+        if (!origin) return cb(null, true);
+        if (allowedOrigins.has(origin)) return cb(null, true);
+        // Localhost dev callbacks (any port).
+        try {
+          const u = new URL(origin);
+          if (
+            (u.protocol === "http:" || u.protocol === "https:") &&
+            (u.hostname === "localhost" || u.hostname === "127.0.0.1")
+          ) {
+            return cb(null, true);
+          }
+        } catch { /* fall through */ }
+        cb(new Error(`CORS: origin ${origin} not allowed`));
+      },
       methods: ["GET", "POST", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization", "Mcp-Session-Id"],
       exposedHeaders: ["Mcp-Session-Id"],
@@ -84,6 +118,23 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
   );
   app.use(express.json({ limit: "4mb" }));
   app.use(express.urlencoded({ extended: false }));
+
+  // ---- Request tracing for OAuth/MCP debugging --------------------------
+  // Logs every hit on OAuth + discovery endpoints so we can diagnose
+  // Claude Desktop's auth flow end-to-end. Cheap and high-signal — leave on.
+  app.use((req, _res, next) => {
+    const p = req.path;
+    if (
+      p === "/authorize" ||
+      p === "/authorize/consent" ||
+      p === "/token" ||
+      p === "/register" ||
+      p.startsWith("/.well-known/")
+    ) {
+      log.info(`[oauth-trace] ${req.method} ${p}${req.method === "GET" && Object.keys(req.query).length ? " ?" + new URLSearchParams(req.query as Record<string, string>).toString().slice(0, 200) : ""}`);
+    }
+    next();
+  });
 
   // ---- OAuth 2.0 server (required by Claude Desktop's Custom Connector) ----
   // The provider validates user-pasted bearer tokens against tokens.json and
@@ -99,9 +150,23 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
     `http://${config.SIMPRO_HTTP_HOST}:${config.SIMPRO_HTTP_PORT}`,
   );
 
+  // Rate-limit the bearer-paste endpoint. The token has 256 bits of entropy
+  // so brute force isn't realistic, but a leaked-prefix or partially-known
+  // token + a fast typing attacker should still be capped. 10 attempts per
+  // 15 minutes per IP is plenty of head-room for a real user re-typing.
+  const consentLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 10,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: "Too many consent attempts. Wait 15 minutes and try again.",
+  });
+
   // Register our custom consent routes BEFORE mcpAuthRouter — Express picks
   // the first match, so our /authorize takes precedence over the SDK's.
   const oauthRouter = Router();
+  // Apply the limiter only to the POST that submits the bearer.
+  oauthRouter.post("/authorize/consent", consentLimiter);
   attachConsentRoutes(oauthRouter, oauthProvider);
   app.use(oauthRouter);
 

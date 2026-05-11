@@ -32,6 +32,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 export type CompanyKey = "plumbing" | "energy";
+const VALID_COMPANY_KEYS: ReadonlySet<CompanyKey> = new Set(["plumbing", "energy"]);
 
 export interface TokenRecord {
   name: string;
@@ -57,17 +58,69 @@ export function generateToken(): string {
   return `smcp_${raw}`;
 }
 
+// Cache the parsed tokens file by mtime — JSON.parse on every request is
+// wasteful for chatty MCP sessions. Reload when the file changes (or when
+// admin scripts touch it from outside this process).
+let cache: { mtimeMs: number; data: TokensFile } | null = null;
+
+/**
+ * Validate a record loaded from JSON. We trust admin scripts but defend
+ * against a hand-edited tokens.json that has e.g. `"companyAccess": "plumbing"`
+ * (string instead of array) — `.includes("p")` would otherwise return true.
+ */
+function validateRecord(token: string, rec: unknown): TokenRecord {
+  if (!rec || typeof rec !== "object") {
+    throw new Error(`tokens.json: record for ${token.slice(0, 8)}... is not an object`);
+  }
+  const r = rec as Record<string, unknown>;
+  if (typeof r.name !== "string" || r.name.length === 0) {
+    throw new Error(`tokens.json: record for ${token.slice(0, 8)}... missing "name"`);
+  }
+  if (typeof r.simproApiKey !== "string" || r.simproApiKey.length < 8) {
+    throw new Error(`tokens.json: record for ${token.slice(0, 8)}... missing/short "simproApiKey"`);
+  }
+  if (!Array.isArray(r.companyAccess) || r.companyAccess.length === 0) {
+    throw new Error(`tokens.json: record for ${token.slice(0, 8)}... "companyAccess" must be a non-empty array`);
+  }
+  for (const c of r.companyAccess) {
+    if (typeof c !== "string" || !VALID_COMPANY_KEYS.has(c as CompanyKey)) {
+      throw new Error(`tokens.json: record for ${token.slice(0, 8)}... has invalid companyAccess value: ${JSON.stringify(c)}`);
+    }
+  }
+  return {
+    name: r.name,
+    simproApiKey: r.simproApiKey,
+    companyAccess: r.companyAccess as CompanyKey[],
+    writeEnabled: r.writeEnabled === true,
+    createdAt: typeof r.createdAt === "string" ? r.createdAt : undefined,
+    lastUsedAt: typeof r.lastUsedAt === "string" ? r.lastUsedAt : undefined,
+  };
+}
+
 export function loadTokens(filePath: string): TokensFile {
   const abs = path.resolve(filePath);
   if (!fs.existsSync(abs)) {
+    cache = null;
     return { tokens: {} };
+  }
+  const stat = fs.statSync(abs);
+  if (cache && cache.mtimeMs === stat.mtimeMs) {
+    return cache.data;
   }
   const raw = fs.readFileSync(abs, "utf8");
   const parsed = JSON.parse(raw) as TokensFile;
-  if (!parsed || typeof parsed !== "object" || !parsed.tokens) {
+  if (!parsed || typeof parsed !== "object" || !parsed.tokens || typeof parsed.tokens !== "object") {
     throw new Error(`Invalid tokens file at ${abs}: missing "tokens" object`);
   }
-  return parsed;
+  // Validate every record up-front so a malformed entry fails at load time,
+  // not at first auth.
+  const validated: Record<string, TokenRecord> = {};
+  for (const [tok, rec] of Object.entries(parsed.tokens)) {
+    validated[tok] = validateRecord(tok, rec);
+  }
+  const out: TokensFile = { tokens: validated };
+  cache = { mtimeMs: stat.mtimeMs, data: out };
+  return out;
 }
 
 export function saveTokens(filePath: string, data: TokensFile): void {
@@ -76,8 +129,10 @@ export function saveTokens(filePath: string, data: TokensFile): void {
   // Write to a tmp file then rename, so a crash mid-write can't corrupt the
   // store. atomicity matters when the file holds live credentials.
   const tmp = `${abs}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { encoding: "utf8" });
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 });
   fs.renameSync(tmp, abs);
+  // Invalidate cache so the next loadTokens picks up the new mtime cleanly.
+  cache = null;
 }
 
 export interface AuthResult {
@@ -130,20 +185,33 @@ export function authenticate(
  * swallowed (we don't want a tokens-file write error to fail an actual
  * tool call). Throttled at most once per minute per token to avoid
  * excessive disk I/O during chatty sessions.
+ *
+ * Concurrency: a process-local promise chain serializes the read-mutate-write
+ * sequence so two concurrent requests can't trample each other's lastUsedAt
+ * (or worse, drop a record that add-user.sh just inserted between requests).
+ * This does NOT defend against the server racing add-user.sh / revoke-user.sh
+ * — admins should run those while the server is briefly stopped, or accept
+ * that the next request might re-write a stale record. We force-reload from
+ * disk inside the critical section to minimise the window.
  */
 const LAST_USED_THROTTLE_MS = 60_000;
 const lastTouchTimes = new Map<string, number>();
+let writeChain: Promise<void> = Promise.resolve();
 export function touchTokenLastUsed(filePath: string, token: string): void {
   const now = Date.now();
   const prev = lastTouchTimes.get(token) ?? 0;
   if (now - prev < LAST_USED_THROTTLE_MS) return;
   lastTouchTimes.set(token, now);
-  try {
-    const store = loadTokens(filePath);
-    if (!store.tokens[token]) return;
-    store.tokens[token].lastUsedAt = new Date(now).toISOString();
-    saveTokens(filePath, store);
-  } catch {
-    // Best-effort.
-  }
+  writeChain = writeChain.then(async () => {
+    try {
+      // Bypass mtime cache: we want the absolute latest before mutating.
+      cache = null;
+      const store = loadTokens(filePath);
+      if (!store.tokens[token]) return;
+      store.tokens[token].lastUsedAt = new Date(now).toISOString();
+      saveTokens(filePath, store);
+    } catch {
+      // Best-effort.
+    }
+  });
 }

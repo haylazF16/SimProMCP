@@ -145,22 +145,42 @@ export class GoldmanOAuthProvider implements OAuthServerProvider {
   async exchangeAuthorizationCode(
     client: OAuthClientInformationFull,
     authorizationCode: string,
-    _codeVerifier?: string,
+    codeVerifier?: string,
     _redirectUri?: string,
     _resource?: URL,
   ): Promise<OAuthTokens> {
+    log.info(`[oauth] exchangeAuthorizationCode called by client=${client.client_id} code=${authorizationCode.slice(0, 8)}...`);
     const data = this.codes.get(authorizationCode);
-    if (!data) throw new Error("Invalid authorization code");
+    if (!data) {
+      log.warn(`[oauth] exchange FAILED: invalid/unknown code ${authorizationCode.slice(0, 8)}...`);
+      throw new Error("Invalid authorization code");
+    }
     if (Date.now() > data.expiresAt) {
       this.codes.delete(authorizationCode);
+      log.warn(`[oauth] exchange FAILED: code expired`);
       throw new Error("Authorization code expired");
     }
     if (data.client.client_id !== client.client_id) {
+      log.warn(`[oauth] exchange FAILED: client mismatch (issued to ${data.client.client_id}, presented by ${client.client_id})`);
       throw new Error("Code was not issued to this client");
+    }
+    // PKCE: the SDK's /token handler MAY validate the verifier itself before
+    // delegating, but the spec requires the auth server enforce it — and we
+    // can't be certain across SDK versions. Defence-in-depth: validate here
+    // too. Without this, an attacker who steals an authorization code from
+    // a redirect log/header can exchange it without the verifier.
+    if (!codeVerifier) {
+      log.warn(`[oauth] exchange FAILED: missing PKCE code_verifier`);
+      throw new Error("Missing PKCE code_verifier");
+    }
+    if (!verifyPkce(codeVerifier, data.params.codeChallenge)) {
+      log.warn(`[oauth] exchange FAILED: PKCE verification failed`);
+      throw new Error("PKCE verification failed");
     }
 
     // Single-use: delete after exchange
     this.codes.delete(authorizationCode);
+    log.info(`[oauth] exchange OK -> issuing access_token (smcp_*** masked) for client=${client.client_id}`);
 
     // The access token is the user's existing bearer token. No expiration
     // on our side — bearer is rotated by add-user.sh / revoke-user.sh.
@@ -317,6 +337,37 @@ function consentPage(opts: {
 // the SDK's mcpAuthRouter (which provides /token, /register, /.well-known/*).
 // ---------------------------------------------------------------------------
 
+/**
+ * Allowlist for redirect_uri hosts when lazy-registering an unknown client.
+ *
+ * Without this, a phishing flow becomes possible:
+ *   /authorize?client_id=Anything&redirect_uri=https://evil.example/&...
+ * Even though the consent gate stops issuance without a valid bearer, an
+ * employee who pastes their bearer would have the resulting auth code
+ * delivered to evil.example, which could then exchange it for the user's
+ * smcp_ token (full account compromise — that token IS the credential).
+ *
+ * We accept:
+ *   - https://claude.ai/* and https://*.claude.ai/* (Anthropic's callback)
+ *   - http://localhost:* / http://127.0.0.1:* (dev / loopback callbacks)
+ * Anything else is rejected with 400.
+ */
+function isAllowedRedirectUri(uri: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(uri);
+  } catch {
+    return false;
+  }
+  if (u.protocol === "https:") {
+    return u.hostname === "claude.ai" || u.hostname.endsWith(".claude.ai");
+  }
+  if (u.protocol === "http:") {
+    return u.hostname === "localhost" || u.hostname === "127.0.0.1";
+  }
+  return false;
+}
+
 export function attachConsentRoutes(
   router: Router,
   provider: GoldmanOAuthProvider,
@@ -325,14 +376,25 @@ export function attachConsentRoutes(
   router.get("/authorize", async (req: Request, res: Response) => {
     try {
       const params = parseAuthorizeQuery(req);
+
+      // Hard-block redirects to anywhere we don't recognise BEFORE we touch
+      // the clients store or render the consent page. This is the single
+      // most important defence against the lazy-DCR open-redirect class
+      // of attack.
+      if (!isAllowedRedirectUri(params.redirectUri)) {
+        log.warn(`OAuth /authorize REJECTED: disallowed redirect_uri ${params.redirectUri}`);
+        res.status(400).type("text/plain").send(
+          "redirect_uri is not on the allowlist. Allowed: https://*.claude.ai, http://localhost:*, http://127.0.0.1:*.",
+        );
+        return;
+      }
+
       let client = await provider.clientsStore.getClient(params.clientId);
 
       // Lazy Dynamic Client Registration: Claude Desktop's "Bearer token"
       // auth mode arrives at /authorize with a hardcoded client_id
       // ("Bearer token") and no preceding /register call. We auto-register
-      // unknown clients on the fly using the redirect_uri from the request.
-      // This is safe because the tailnet already gates who can reach us,
-      // and our /token endpoint still enforces PKCE verification.
+      // unknown clients ONLY if the redirect_uri passed the allowlist above.
       if (!client) {
         client = await provider.clientsStore.registerClient({
           client_id: params.clientId,
@@ -344,20 +406,49 @@ export function attachConsentRoutes(
         } as unknown as OAuthClientInformationFull);
         log.info(`OAuth client auto-registered (lazy DCR): ${params.clientId} -> ${params.redirectUri}`);
       } else if (!client.redirect_uris.includes(params.redirectUri)) {
-        // If the client was previously registered with a different redirect_uri,
-        // accept the new one too (Claude Desktop sometimes uses ephemeral
-        // localhost ports). Add it to the registered list.
+        // Existing client showing up with a NEW redirect_uri. Only accept
+        // if it's still on the host allowlist (already checked above) AND
+        // is on the same host as a previously-registered redirect — this
+        // prevents an attacker who learned a client_id from pivoting it
+        // to a different (but still allowlisted) attacker-controlled host
+        // under e.g. *.claude.ai. We compare hostnames only (ports/paths
+        // can vary legitimately between Claude Desktop builds).
+        const newHost = new URL(params.redirectUri).hostname;
+        const knownHosts = new Set(
+          client.redirect_uris.map((u) => {
+            try { return new URL(u).hostname; } catch { return ""; }
+          }),
+        );
+        if (!knownHosts.has(newHost)) {
+          log.warn(
+            `OAuth /authorize REJECTED: client ${params.clientId} previously used hosts ${[...knownHosts].join(",")}, refused new host ${newHost}`,
+          );
+          res.status(400).type("text/plain").send(
+            "redirect_uri host does not match this client's previously-registered hosts.",
+          );
+          return;
+        }
         client.redirect_uris = [...client.redirect_uris, params.redirectUri];
         await provider.clientsStore.registerClient(client);
         log.info(`OAuth client redirect_uri added: ${params.clientId} += ${params.redirectUri}`);
       }
       const sessionId = provider.beginPending(client, params);
-      res.type("text/html").send(
-        consentPage({
-          sessionId,
-          clientName: client.client_name ?? client.client_id,
-        }),
-      );
+      res
+        .type("text/html")
+        // Tight CSP for the consent page: no scripts, only inline styles
+        // (we have a small <style> block), no external resources, no frames.
+        .set(
+          "Content-Security-Policy",
+          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+        )
+        .set("X-Frame-Options", "DENY")
+        .set("Referrer-Policy", "no-referrer")
+        .send(
+          consentPage({
+            sessionId,
+            clientName: client.client_name ?? client.client_id,
+          }),
+        );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       res.status(400).type("text/plain").send(`Authorize error: ${msg}`);
@@ -433,9 +524,9 @@ function oneStr(v: unknown): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Expose the SDK helpers for code-challenge validation, used by the SDK's
-// own /token handler. We don't need to call this directly — just exporting
-// in case downstream code wants it.
+// PKCE S256 verification: SHA-256(code_verifier) (base64url, no padding) must
+// equal the code_challenge stored at /authorize time. Called from
+// exchangeAuthorizationCode for defence-in-depth on top of any SDK check.
 // ---------------------------------------------------------------------------
 
 export function verifyPkce(codeVerifier: string, codeChallenge: string): boolean {
