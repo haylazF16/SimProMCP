@@ -25,6 +25,52 @@ function esc(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+export function renderLoginPage(opts: { errorMessage?: string }): string {
+  const err = opts.errorMessage
+    ? `<div class="err">${esc(opts.errorMessage)}</div>`
+    : "";
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Admin login — Goldman Simpro AI tool</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif;
+         background:#0f4c75; color:#fff; margin:0; padding:0; min-height:100vh;
+         display:flex; align-items:center; justify-content:center; }
+  .card { background:#fff; color:#222; max-width:480px; width:90%;
+          padding:32px; border-radius:8px; box-shadow:0 8px 32px rgba(0,0,0,0.2); }
+  h1 { margin:0 0 8px; font-size:20px; color:#0f4c75; }
+  .sub { color:#666; font-size:14px; margin-bottom:24px; }
+  label { display:block; margin:14px 0 6px; font-weight:600; font-size:14px; }
+  input { width:100%; padding:10px; box-sizing:border-box;
+          border:1px solid #ccc; border-radius:4px; font-size:14px;
+          font-family: monospace; }
+  button { width:100%; padding:12px; background:#0f4c75; color:#fff;
+           border:none; border-radius:4px; font-size:15px; font-weight:600;
+           cursor:pointer; margin-top:16px; }
+  button:hover { background:#1b5e9c; }
+  .err { background:#fff3f3; color:#c0392b; padding:10px; border-radius:4px;
+         margin-bottom:16px; font-size:13px; }
+  .help { font-size:12px; color:#888; margin-top:16px; line-height:1.5; }
+</style></head><body>
+<div class="card">
+  <h1>Goldman Simpro admin</h1>
+  <div class="sub">Sign in with your <code>smcp_</code> token. You'll stay
+  signed in on this browser for 24 hours.</div>
+  ${err}
+  <form method="POST" action="/admin/login">
+    <label for="smcp_token">Your smcp_ token</label>
+    <input type="password" id="smcp_token" name="smcp_token" autocomplete="off"
+           placeholder="smcp_..." required minlength="20" maxlength="200" autofocus>
+    <button type="submit">Sign in</button>
+  </form>
+  <div class="help">
+    This is the same token you'd use as a Bearer header when calling /admin
+    from curl. If you don't have admin access, ask an existing admin to add
+    <code>"isAdmin": true</code> to your record in tokens.json.
+  </div>
+</div>
+</body></html>`;
+}
+
 /** SHA-256 hash of a Simpro API key (used as URL-safe identifier). */
 export function keyHash(simproApiKey: string): string {
   return createHash("sha256").update(simproApiKey).digest("hex");
@@ -64,6 +110,9 @@ const NAV = `<div class="nav">
   <a href="/admin">Users</a>
   <a href="/admin/audit">Audit log</a>
   <a href="/admin/users/new">Create user manually</a>
+  <form method="POST" action="/admin/logout" style="display:inline;margin-left:16px;">
+    <button type="submit" style="background:none;border:none;color:#0f4c75;font-weight:600;cursor:pointer;padding:0;font-family:inherit;font-size:inherit;">Logout</button>
+  </form>
 </div>`;
 
 export function renderDashboard(adminName: string, users: Array<{ smcpToken: string; record: TokenRecord }>): string {

@@ -1,6 +1,11 @@
 // src/http/admin.ts
 // Admin dashboard for managing enrolled users. All routes are gated by
-// requireAdmin which checks the smcp_ token's isAdmin flag in tokens.json.
+// requireAdmin which checks the admin's identity via either:
+//   1. A session cookie (`goldman_admin_session=smcp_xxx`) set by /admin/login
+//   2. An Authorization: Bearer header (for curl / API use)
+//
+// In both cases the smcp_ token must belong to a user whose tokens.json
+// record has isAdmin=true.
 
 import { Router, type Request, type Response, type NextFunction, type RequestHandler } from "express";
 import * as fs from "node:fs";
@@ -15,23 +20,74 @@ import {
   renderAuditView,
   renderManualCreatePage,
   renderManualCreateResult,
+  renderLoginPage,
 } from "./admin-templates.js";
+
+const ADMIN_COOKIE = "goldman_admin_session";
+
+/**
+ * Parse a single cookie value out of the Cookie header. Returns undefined if
+ * not present. We don't use a cookie-parser middleware to keep deps small —
+ * this is the only place that reads cookies.
+ */
+function getCookie(req: Request, name: string): string | undefined {
+  const raw = req.headers.cookie;
+  if (typeof raw !== "string") return undefined;
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    const k = part.slice(0, eq).trim();
+    if (k === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return undefined;
+}
+
+type AdminResolveResult =
+  | { ok: true; admin: { name: string; smcpToken: string } }
+  | { ok: false; status: number; reason: string };
+
+/**
+ * Look up an smcp_ token (from cookie or Authorization header) and confirm
+ * the matching record has isAdmin=true. Cookie takes precedence over header.
+ */
+function resolveAdmin(
+  tokensFile: string,
+  cookieToken: string | undefined,
+  authHeader: string | undefined,
+): AdminResolveResult {
+  const header = cookieToken ? `Bearer ${cookieToken}` : authHeader;
+  const auth = authenticate(tokensFile, header);
+  if (!auth.ok) {
+    return { ok: false, status: auth.status, reason: auth.reason };
+  }
+  if (auth.record.isAdmin !== true) {
+    return { ok: false, status: 403, reason: "Admin access required." };
+  }
+  return { ok: true, admin: { name: auth.record.name, smcpToken: auth.token } };
+}
 
 export function requireAdmin(tokensFile: string): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
-    const auth = authenticate(tokensFile, req.headers["authorization"]);
-    if (!auth.ok) {
-      res.status(auth.status).type("text/plain").send(auth.reason);
+    const cookieToken = getCookie(req, ADMIN_COOKIE);
+    const authHeader = req.headers["authorization"];
+    const result = resolveAdmin(tokensFile, cookieToken, authHeader);
+    if (!result.ok) {
+      // If this looks like a browser navigation (GET, accepts HTML), bounce
+      // to the login page instead of showing a bare 401/403. Skip for non-GET
+      // (forms, API calls) — those get the status they earned.
+      const wantsHtml =
+        req.method === "GET" &&
+        typeof req.headers.accept === "string" &&
+        req.headers.accept.includes("text/html") &&
+        req.path !== "/admin/login";
+      if (wantsHtml) {
+        res.redirect("/admin/login");
+        return;
+      }
+      res.status(result.status).type("text/plain").send(result.reason);
       return;
     }
-    if (auth.record.isAdmin !== true) {
-      res.status(403).type("text/plain").send("Admin access required.");
-      return;
-    }
-    (res.locals as { admin: { name: string; smcpToken: string } }).admin = {
-      name: auth.record.name,
-      smcpToken: auth.token,
-    };
+    (res.locals as { admin: { name: string; smcpToken: string } }).admin = result.admin;
     next();
   };
 }
@@ -56,6 +112,55 @@ function findUserByKeyHash(tokensFile: string, hash: string): { smcpToken: strin
 
 export function attachAdminRoutes(router: Router, config: Config): void {
   const admin = requireAdmin(config.SIMPRO_TOKENS_FILE);
+
+  // GET /admin/login — show the login form
+  // Note: NOT gated by `admin` middleware (would cause a redirect loop).
+  router.get("/admin/login", (_req, res) => {
+    withHeaders(res).type("text/html").send(renderLoginPage({}));
+  });
+
+  // POST /admin/login — validate the smcp_ token, set a session cookie,
+  // redirect to /admin.
+  router.post("/admin/login", (req, res) => {
+    const body = req.body as { smcp_token?: string };
+    const token = typeof body?.smcp_token === "string" ? body.smcp_token.trim() : "";
+    if (!token) {
+      withHeaders(res).type("text/html").send(renderLoginPage({ errorMessage: "Token required." }));
+      return;
+    }
+    const resolved = resolveAdmin(config.SIMPRO_TOKENS_FILE, token, undefined);
+    if (!resolved.ok) {
+      withHeaders(res).type("text/html").send(renderLoginPage({
+        errorMessage: "That token is either unknown or not an admin account.",
+      }));
+      return;
+    }
+    // Set the session cookie. HttpOnly so JS can't read it; Secure so it
+    // only travels over HTTPS; SameSite=Strict so it can't be CSRF'd.
+    // Max-Age 24h — admin re-logs in daily.
+    res.set(
+      "Set-Cookie",
+      `${ADMIN_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400`,
+    );
+    log.info(`admin.action actor=${sanitizeForLog(resolved.admin.name)} action=login`);
+    res.redirect("/admin");
+  });
+
+  // POST /admin/logout — clear the session cookie.
+  router.post("/admin/logout", (req, res) => {
+    const cookieToken = getCookie(req, ADMIN_COOKIE);
+    const who = cookieToken
+      ? resolveAdmin(config.SIMPRO_TOKENS_FILE, cookieToken, undefined)
+      : null;
+    res.set(
+      "Set-Cookie",
+      `${ADMIN_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`,
+    );
+    if (who && who.ok) {
+      log.info(`admin.action actor=${sanitizeForLog(who.admin.name)} action=logout`);
+    }
+    res.redirect("/admin/login");
+  });
 
   // GET /admin — user list
   router.get("/admin", admin, (_req, res) => {
