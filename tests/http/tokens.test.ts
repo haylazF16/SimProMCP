@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { loadTokens, saveTokens, addUser, removeUser, updateUser, lookupBySimproKey } from "../../src/http/tokens.js";
+import { loadTokens, saveTokens, addUser, addUserIfAbsent, removeUser, updateUser, lookupBySimproKey } from "../../src/http/tokens.js";
 
 let tmpFile: string;
 
@@ -174,5 +174,69 @@ describe("updateUser", () => {
   it("returns false when the token doesn't exist", async () => {
     fs.writeFileSync(tmpFile, JSON.stringify({ tokens: {} }));
     expect(await updateUser(tmpFile, "smcp_nope", { writeEnabled: true })).toBe(false);
+  });
+});
+
+describe("addUserIfAbsent", () => {
+  it("creates a new record when none matches", async () => {
+    fs.writeFileSync(tmpFile, JSON.stringify({ tokens: {} }));
+    const result = await addUserIfAbsent(tmpFile, {
+      name: "Alice",
+      simproApiKey: "alice-key-12345",
+      companyAccess: ["plumbing"],
+      writeEnabled: true,
+      enrolledVia: "self-service",
+    });
+    expect(result.wasAbsent).toBe(true);
+    expect(result.smcpToken).toMatch(/^smcp_/);
+  });
+
+  it("returns existing record when simproApiKey already present", async () => {
+    fs.writeFileSync(tmpFile, JSON.stringify({
+      tokens: {
+        "smcp_existing": {
+          name: "Bob",
+          simproApiKey: "bob-key-12345",
+          companyAccess: ["energy"],
+        },
+      },
+    }));
+    const result = await addUserIfAbsent(tmpFile, {
+      name: "Bob Renamed",
+      simproApiKey: "bob-key-12345",
+      companyAccess: ["plumbing", "energy"],
+      writeEnabled: true,
+      enrolledVia: "self-service",
+    });
+    expect(result.wasAbsent).toBe(false);
+    expect(result.smcpToken).toBe("smcp_existing");
+    expect(result.record.name).toBe("Bob");
+  });
+
+  it("two concurrent calls with same Simpro key result in ONE record (race protection)", async () => {
+    fs.writeFileSync(tmpFile, JSON.stringify({ tokens: {} }));
+    const callOne = addUserIfAbsent(tmpFile, {
+      name: "Concurrent",
+      simproApiKey: "race-key-12345",
+      companyAccess: ["plumbing"],
+      writeEnabled: true,
+      enrolledVia: "self-service",
+    });
+    const callTwo = addUserIfAbsent(tmpFile, {
+      name: "Concurrent",
+      simproApiKey: "race-key-12345",
+      companyAccess: ["plumbing"],
+      writeEnabled: true,
+      enrolledVia: "self-service",
+    });
+    const [r1, r2] = await Promise.all([callOne, callTwo]);
+    // Exactly one created, one absent-check
+    const created = [r1, r2].filter(r => r.wasAbsent);
+    expect(created).toHaveLength(1);
+    // Both return the same smcp_ token
+    expect(r1.smcpToken).toBe(r2.smcpToken);
+    // tokens.json has exactly one record
+    const store = JSON.parse(fs.readFileSync(tmpFile, "utf8"));
+    expect(Object.keys(store.tokens)).toHaveLength(1);
   });
 });

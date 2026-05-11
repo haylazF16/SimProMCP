@@ -293,6 +293,38 @@ export function addUser(
 }
 
 /**
+ * Idempotent variant of addUser: if a record already exists with the same
+ * simproApiKey, returns it; otherwise creates a new one. The check and
+ * insert run inside a single writeChain critical section so concurrent
+ * callers with the same key see the same record.
+ */
+export function addUserIfAbsent(
+  filePath: string,
+  partial: Omit<TokenRecord, "createdAt" | "lastUsedAt" | "isAdmin">,
+): Promise<{ smcpToken: string; record: TokenRecord; wasAbsent: boolean }> {
+  return withWriteLock(() => {
+    cache = null;
+    const store = loadTokens(filePath);
+    for (const [smcpToken, record] of Object.entries(store.tokens)) {
+      if (record.simproApiKey === partial.simproApiKey) {
+        return { smcpToken, record, wasAbsent: false };
+      }
+    }
+    // Same drop-isAdmin guard as addUser.
+    const { isAdmin: _ignoreIsAdmin, ...safePartial } = partial as TokenRecord;
+    void _ignoreIsAdmin;
+    const smcpToken = generateToken();
+    const record: TokenRecord = {
+      ...safePartial,
+      createdAt: new Date().toISOString(),
+    };
+    store.tokens[smcpToken] = record;
+    saveTokens(filePath, store);
+    return { smcpToken, record, wasAbsent: true };
+  });
+}
+
+/**
  * Delete a record by smcp_ token. Returns true if it existed and was removed.
  */
 export function removeUser(filePath: string, smcpToken: string): Promise<boolean> {
