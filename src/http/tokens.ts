@@ -214,6 +214,19 @@ export function authenticate(
 const LAST_USED_THROTTLE_MS = 60_000;
 const lastTouchTimes = new Map<string, number>();
 let writeChain: Promise<void> = Promise.resolve();
+
+/**
+ * Run a tokens.json read-modify-write critical section serialized with all
+ * other writers in this process (including touchTokenLastUsed). Use for any
+ * helper that mutates the file.
+ */
+function withWriteLock<T>(work: () => T): Promise<T> {
+  const next = writeChain.then(async () => work());
+  // Keep the chain alive even on errors so a thrown writer doesn't break the queue.
+  writeChain = next.then(() => undefined, () => undefined);
+  return next;
+}
+
 export function touchTokenLastUsed(filePath: string, token: string): void {
   const now = Date.now();
   const prev = lastTouchTimes.get(token) ?? 0;
@@ -256,31 +269,41 @@ export function lookupBySimproKey(
  */
 export function addUser(
   filePath: string,
-  partial: Omit<TokenRecord, "createdAt" | "lastUsedAt">,
-): { smcpToken: string; record: TokenRecord } {
-  const smcpToken = generateToken();
-  const record: TokenRecord = {
-    ...partial,
-    createdAt: new Date().toISOString(),
-  };
-  // Bypass the mtime cache so we read the latest disk state before mutating.
-  cache = null;
-  const store = loadTokens(filePath);
-  store.tokens[smcpToken] = record;
-  saveTokens(filePath, store);
-  return { smcpToken, record };
+  partial: Omit<TokenRecord, "createdAt" | "lastUsedAt" | "isAdmin">,
+): Promise<{ smcpToken: string; record: TokenRecord }> {
+  return withWriteLock(() => {
+    const smcpToken = generateToken();
+    // Explicitly drop isAdmin from the input even if a runtime caller used
+    // `as any` to bypass the type. Admin status is granted only via
+    // updateUser() (or manual JSON edit). Self-service onboarding can never
+    // escalate.
+    const { isAdmin: _ignoreIsAdmin, ...safePartial } = partial as TokenRecord;
+    void _ignoreIsAdmin;
+    const record: TokenRecord = {
+      ...safePartial,
+      createdAt: new Date().toISOString(),
+    };
+    // Bypass the mtime cache so we read the latest disk state before mutating.
+    cache = null;
+    const store = loadTokens(filePath);
+    store.tokens[smcpToken] = record;
+    saveTokens(filePath, store);
+    return { smcpToken, record };
+  });
 }
 
 /**
  * Delete a record by smcp_ token. Returns true if it existed and was removed.
  */
-export function removeUser(filePath: string, smcpToken: string): boolean {
-  cache = null;
-  const store = loadTokens(filePath);
-  if (!(smcpToken in store.tokens)) return false;
-  delete store.tokens[smcpToken];
-  saveTokens(filePath, store);
-  return true;
+export function removeUser(filePath: string, smcpToken: string): Promise<boolean> {
+  return withWriteLock(() => {
+    cache = null;
+    const store = loadTokens(filePath);
+    if (!(smcpToken in store.tokens)) return false;
+    delete store.tokens[smcpToken];
+    saveTokens(filePath, store);
+    return true;
+  });
 }
 
 /**
@@ -291,11 +314,13 @@ export function updateUser(
   filePath: string,
   smcpToken: string,
   patch: Partial<Omit<TokenRecord, "simproApiKey" | "createdAt">>,
-): boolean {
-  cache = null;
-  const store = loadTokens(filePath);
-  if (!(smcpToken in store.tokens)) return false;
-  store.tokens[smcpToken] = { ...store.tokens[smcpToken], ...patch };
-  saveTokens(filePath, store);
-  return true;
+): Promise<boolean> {
+  return withWriteLock(() => {
+    cache = null;
+    const store = loadTokens(filePath);
+    if (!(smcpToken in store.tokens)) return false;
+    store.tokens[smcpToken] = { ...store.tokens[smcpToken], ...patch };
+    saveTokens(filePath, store);
+    return true;
+  });
 }

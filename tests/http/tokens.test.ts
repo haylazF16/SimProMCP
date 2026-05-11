@@ -96,9 +96,9 @@ describe("lookupBySimproKey", () => {
 });
 
 describe("addUser", () => {
-  it("creates a new record and returns the generated smcp token", () => {
+  it("creates a new record and returns the generated smcp token", async () => {
     fs.writeFileSync(tmpFile, JSON.stringify({ tokens: {} }));
-    const result = addUser(tmpFile, {
+    const result = await addUser(tmpFile, {
       name: "Jane",
       simproApiKey: "key-jane",
       companyAccess: ["plumbing", "energy"],
@@ -111,31 +111,49 @@ describe("addUser", () => {
     expect(after.tokens[result.smcpToken].enrolledVia).toBe("self-service");
     expect(after.tokens[result.smcpToken].createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
+
+  it("does NOT allow isAdmin to be set at creation (privilege escalation guard)", async () => {
+    fs.writeFileSync(tmpFile, JSON.stringify({ tokens: {} }));
+    // Even if the caller tries via 'as any' bypass, isAdmin must not appear on the record.
+    const result = await addUser(tmpFile, {
+      name: "Sneaky",
+      simproApiKey: "key-sneak",
+      companyAccess: ["plumbing"],
+      writeEnabled: true,
+      enrolledVia: "self-service",
+      // @ts-expect-error: deliberately violating types to verify runtime guard
+      isAdmin: true,
+    });
+    // The TS type omits isAdmin, but a runtime caller using `as any` could
+    // pass it through. The implementation must drop it.
+    const after = loadTokens(tmpFile);
+    expect(after.tokens[result.smcpToken].isAdmin).toBe(false);
+  });
 });
 
 describe("removeUser", () => {
-  it("deletes the record for the given smcp token", () => {
+  it("deletes the record for the given smcp token", async () => {
     fs.writeFileSync(tmpFile, JSON.stringify({
       tokens: {
         "smcp_keep": { name: "Keep", simproApiKey: "key-keep", companyAccess: ["plumbing"] },
         "smcp_drop": { name: "Drop", simproApiKey: "key-drop", companyAccess: ["plumbing"] },
       },
     }));
-    const removed = removeUser(tmpFile, "smcp_drop");
+    const removed = await removeUser(tmpFile, "smcp_drop");
     expect(removed).toBe(true);
     const after = loadTokens(tmpFile);
     expect(after.tokens["smcp_drop"]).toBeUndefined();
     expect(after.tokens["smcp_keep"]).toBeDefined();
   });
 
-  it("returns false when the token doesn't exist", () => {
+  it("returns false when the token doesn't exist", async () => {
     fs.writeFileSync(tmpFile, JSON.stringify({ tokens: {} }));
-    expect(removeUser(tmpFile, "smcp_nonexistent")).toBe(false);
+    expect(await removeUser(tmpFile, "smcp_nonexistent")).toBe(false);
   });
 });
 
 describe("updateUser", () => {
-  it("merges the patch into the existing record", () => {
+  it("merges the patch into the existing record", async () => {
     fs.writeFileSync(tmpFile, JSON.stringify({
       tokens: {
         "smcp_one": {
@@ -146,15 +164,15 @@ describe("updateUser", () => {
         },
       },
     }));
-    const updated = updateUser(tmpFile, "smcp_one", { writeEnabled: true });
+    const updated = await updateUser(tmpFile, "smcp_one", { writeEnabled: true });
     expect(updated).toBe(true);
     const after = loadTokens(tmpFile);
     expect(after.tokens["smcp_one"].writeEnabled).toBe(true);
     expect(after.tokens["smcp_one"].name).toBe("User");
   });
 
-  it("returns false when the token doesn't exist", () => {
+  it("returns false when the token doesn't exist", async () => {
     fs.writeFileSync(tmpFile, JSON.stringify({ tokens: {} }));
-    expect(updateUser(tmpFile, "smcp_nope", { writeEnabled: true })).toBe(false);
+    expect(await updateUser(tmpFile, "smcp_nope", { writeEnabled: true })).toBe(false);
   });
 });
