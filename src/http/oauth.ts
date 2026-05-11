@@ -33,6 +33,8 @@ import {
 import { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import { authenticate } from "./tokens.js";
 import { log } from "../logger.js";
+import { probeForFrontend, enrollUser } from "./enroll.js";
+import { Config } from "../config.js";
 
 // ---------------------------------------------------------------------------
 // In-memory clients store. Claude Desktop registers itself dynamically; we
@@ -267,8 +269,9 @@ function consentPage(opts: {
   sessionId: string;
   clientName: string;
   errorMessage?: string;
+  prefilledName?: string;
 }): string {
-  const { sessionId, clientName, errorMessage } = opts;
+  const { sessionId, clientName, errorMessage, prefilledName } = opts;
   const safeClient = clientName
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -280,11 +283,15 @@ function consentPage(opts: {
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")}</div>`
     : "";
+  const safePrefilledName = (prefilledName ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .slice(0, 100);
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Goldman Simpro MCP - authorize</title>
+<title>Goldman Simpro AI tool - authorize</title>
 <style>
   body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
          background:#0f4c75; color:#fff; margin:0; padding:0; min-height:100vh;
@@ -295,17 +302,24 @@ function consentPage(opts: {
   .sub { color:#666; font-size:14px; margin-bottom:24px; }
   .client { background:#eef4fb; padding:8px 12px; border-radius:4px;
             font-size:13px; margin-bottom:16px; }
-  label { display:block; margin-bottom:8px; font-weight:600; font-size:14px; }
-  input[type=password] { width:100%; padding:10px; box-sizing:border-box;
-                          border:1px solid #ccc; border-radius:4px; font-size:14px;
-                          font-family: monospace; }
+  label { display:block; margin:14px 0 6px; font-weight:600; font-size:14px; }
+  input { width:100%; padding:10px; box-sizing:border-box;
+          border:1px solid #ccc; border-radius:4px; font-size:14px; }
+  input.simpro-key { font-family: monospace; }
   button { width:100%; padding:12px; background:#0f4c75; color:#fff;
            border:none; border-radius:4px; font-size:15px; font-weight:600;
            cursor:pointer; margin-top:16px; }
   button:hover { background:#1b5e9c; }
+  button:disabled { background:#888; cursor:wait; }
   .err { background:#fff3f3; color:#c0392b; padding:10px; border-radius:4px;
          margin-bottom:16px; font-size:13px; border:1px solid #f0c4c0; }
+  .info { background:#eaf6ea; color:#1c6b1c; padding:8px 10px;
+          border-radius:4px; font-size:13px; margin-top:8px; min-height:18px; }
+  .info.error { background:#fff3f3; color:#c0392b; }
+  .info:empty { display:none; }
   .help { font-size:12px; color:#888; margin-top:16px; line-height:1.5; }
+  .unenroll { font-size:12px; color:#888; margin-top:20px; text-align:center; }
+  .unenroll a { color:#888; }
 </style>
 </head>
 <body>
@@ -314,19 +328,74 @@ function consentPage(opts: {
   <div class="sub">Authorize this client to access Simpro on your behalf.</div>
   <div class="client">Client: <b>${safeClient}</b></div>
   ${errBlock}
-  <form method="POST" action="/authorize/consent">
+  <form method="POST" action="/authorize/consent" id="enroll-form">
     <input type="hidden" name="session" value="${sessionId}">
-    <label for="token">Your bearer token (smcp_...)</label>
-    <input type="password" id="token" name="token" autocomplete="off"
-           placeholder="smcp_..." required autofocus>
-    <button type="submit">Authorize</button>
+    <label for="name">Your full name</label>
+    <input type="text" id="name" name="name" autocomplete="name"
+           value="${safePrefilledName}" required maxlength="100">
+    <label for="simpro_key">Your Simpro API key</label>
+    <input type="password" id="simpro_key" name="simpro_key"
+           class="simpro-key" autocomplete="off"
+           placeholder="paste your Simpro API key" required minlength="20" maxlength="200">
+    <div id="probe-info" class="info"></div>
+    <button type="submit" id="submit-btn">Authorize</button>
   </form>
   <div class="help">
-    Paste the bearer token IT gave you. This is the same token you pasted into Claude Desktop's
-    Custom Connector dialog. After this one-time authorization, Claude Desktop will use the token
-    automatically — you won't see this page again on this device.
+    Paste the Simpro API key you created in Simpro (gear icon → System → Setup → API Keys).
+    We validate it with Simpro and detect which companies (Plumbing, Energy)
+    you have access to. After this one-time authorization, Claude Desktop
+    will keep you signed in — you won't see this page again on this device.
   </div>
+  <div class="unenroll"><a href="/unenroll">Remove my account</a></div>
 </div>
+<script>
+(() => {
+  const keyInput = document.getElementById("simpro_key");
+  const nameInput = document.getElementById("name");
+  const info = document.getElementById("probe-info");
+  let timer = null;
+  let lastProbed = "";
+
+  function probe() {
+    const k = keyInput.value.trim();
+    if (k.length < 20 || k === lastProbed) return;
+    lastProbed = k;
+    info.classList.remove("error");
+    info.textContent = "Checking with Simpro...";
+    fetch("/enroll/probe", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ simpro_key: k }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.valid) {
+          if (!nameInput.value.trim() && data.name) nameInput.value = data.name;
+          const access = (data.companyAccess || []).join(", ");
+          info.textContent = "Verified. Access: " + (access || "none — see error");
+          if (!access) info.classList.add("error");
+        } else {
+          info.classList.add("error");
+          const reasons = {
+            invalid_key: "Simpro rejected this key.",
+            simpro_unreachable: "Couldn't reach Simpro — check your network.",
+            no_company_access: "Key has no access to Plumbing or Energy.",
+          };
+          info.textContent = reasons[data.reason] || ("Validation failed: " + data.reason);
+        }
+      })
+      .catch(() => {
+        info.classList.add("error");
+        info.textContent = "Probe failed.";
+      });
+  }
+
+  keyInput.addEventListener("input", () => {
+    clearTimeout(timer);
+    timer = setTimeout(probe, 600);
+  });
+})();
+</script>
 </body>
 </html>`;
 }
@@ -371,6 +440,7 @@ function isAllowedRedirectUri(uri: string): boolean {
 export function attachConsentRoutes(
   router: Router,
   provider: GoldmanOAuthProvider,
+  config: Config,
 ): void {
   // Custom GET /authorize — overrides the SDK's. Renders the consent page.
   router.get("/authorize", async (req: Request, res: Response) => {
@@ -455,10 +525,33 @@ export function attachConsentRoutes(
     }
   });
 
-  // POST /authorize/consent — user has submitted their bearer token.
+  // AJAX endpoint used by the consent page's live probe.
+  router.post("/enroll/probe", async (req: Request, res: Response) => {
+    const body = req.body as { simpro_key?: string };
+    const key = typeof body?.simpro_key === "string" ? body.simpro_key.trim() : "";
+    if (key.length < 20) {
+      res.status(400).json({ valid: false, reason: "invalid_key" });
+      return;
+    }
+    try {
+      const result = await probeForFrontend({
+        simproBaseUrl: config.SIMPRO_BASE_URL,
+        simproApiKey: key,
+      });
+      res.json(result);
+    } catch (err) {
+      log.warn(`/enroll/probe error: ${err instanceof Error ? err.message : String(err)}`);
+      res.status(500).json({ valid: false, reason: "simpro_unreachable" });
+    }
+  });
+
   router.post("/authorize/consent", async (req: Request, res: Response) => {
-    const { session, token } = req.body as { session?: string; token?: string };
-    if (!session || !token) {
+    const { session, name, simpro_key } = req.body as {
+      session?: string;
+      name?: string;
+      simpro_key?: string;
+    };
+    if (!session || !name || !simpro_key) {
       res.status(400).type("text/plain").send("Missing fields");
       return;
     }
@@ -469,20 +562,42 @@ export function attachConsentRoutes(
       );
       return;
     }
-    if (!provider.validateUserToken(token)) {
-      // Re-render the consent page with an error
+
+    // Run the enrollment orchestrator.
+    const result = await enrollUser({
+      tokensFile: config.SIMPRO_TOKENS_FILE,
+      simproBaseUrl: config.SIMPRO_BASE_URL,
+      simproApiKey: simpro_key.trim(),
+      submittedName: name.trim(),
+      via: "self-service",
+    });
+
+    if (!result.ok) {
+      // Re-render the consent page with an inline error.
+      const reasonMsg: Record<string, string> = {
+        invalid_key: "Simpro rejected that API key. Double-check and try again.",
+        simpro_unreachable: "Couldn't reach Simpro to verify the key. Wait a minute and retry. If it persists, contact Tayfun.",
+        no_company_access: "Your Simpro key doesn't have access to Goldman Plumbing (company 4) or Goldman Energy (company 37). Ask Simpro IT to grant access.",
+        name_required: "Please enter your full name.",
+        unexpected_status: "Simpro returned an unexpected response. Try again.",
+      };
       const newSessionId = provider.beginPending(pending.client, pending.params);
       res.type("text/html").send(
         consentPage({
           sessionId: newSessionId,
           clientName: pending.client.client_name ?? pending.client.client_id,
-          errorMessage: "That token is not registered. Check with IT and try again.",
+          errorMessage: reasonMsg[result.reason] ?? `Error: ${result.reason}`,
+          prefilledName: name.trim(),
         }),
       );
       return;
     }
-    // Stash the user token on res.locals and call provider.authorize()
-    (res.locals as { userToken: string }).userToken = token;
+
+    // Audit-log the enrollment outcome.
+    log.info(`enroll success: name=${result.record.name} companies=${result.record.companyAccess.join(",")} idempotent=${result.wasIdempotent}`);
+
+    // Stash the issued smcp_ token on res.locals and complete the OAuth handshake.
+    (res.locals as { userToken: string }).userToken = result.smcpToken;
     await provider.authorize(pending.client, pending.params, res);
   });
 }

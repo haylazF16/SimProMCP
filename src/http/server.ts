@@ -162,12 +162,21 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
     message: "Too many consent attempts. Wait 15 minutes and try again.",
   });
 
+  const probeLimiter = rateLimit({
+    windowMs: 5 * 60 * 1000,
+    limit: 30,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { valid: false, reason: "rate_limited" },
+  });
+
   // Register our custom consent routes BEFORE mcpAuthRouter — Express picks
   // the first match, so our /authorize takes precedence over the SDK's.
   const oauthRouter = Router();
   // Apply the limiter only to the POST that submits the bearer.
   oauthRouter.post("/authorize/consent", consentLimiter);
-  attachConsentRoutes(oauthRouter, oauthProvider);
+  oauthRouter.post("/enroll/probe", probeLimiter);
+  attachConsentRoutes(oauthRouter, oauthProvider, config);
   app.use(oauthRouter);
 
   // SDK's auth router provides /token, /register, /.well-known/* — for
