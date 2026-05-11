@@ -19,9 +19,10 @@ internet.
 ```
 
 The public URL is HTTPS-only. Authentication is a one-time OAuth consent
-where you paste your personal token; after that Claude Desktop reuses it
-automatically. The Goldman server uses **your** Simpro API key when
-calling Simpro, so Simpro's audit log shows **your** name on every action.
+where you paste your Simpro API key; after that Claude Desktop reuses
+the issued token automatically. The Goldman server uses **your** Simpro API
+key when calling Simpro, so Simpro's audit log shows **your** name on every
+action.
 
 ---
 
@@ -33,85 +34,44 @@ calling Simpro, so Simpro's audit log shows **your** name on every action.
 - Internet connection (any — home, mobile hotspot, hotel Wi-Fi all work).
 
 You do **not** need a VPN or Tailscale. The connection is HTTPS over the
-public internet, secured by a personal token IT issues to you.
+public internet, secured by your personal Simpro API key.
 
 ---
 
-## Part 1 — Get your own Simpro API key
+## Part 1 — Get your Simpro API key (2 minutes)
 
-Each person uses their own key so Simpro's audit log shows who did what.
+Each person uses their own Simpro key so Simpro's audit log shows who did what.
 
 1. Log into Simpro: <https://goldmanplumbingservices.simprosuite.com>
-2. Click the **gear icon** (top right) → **System** → **Setup** →
-   **API Keys**.
-3. Click **Add**.
-4. **Name it after yourself**, e.g. `Jane Smith - Claude Desktop`.
-5. **Linked Employee:** choose **your own employee record**.
-6. **Permissions:** start with **read-only**. IT can grant edit later.
-7. Click **Save**. Simpro shows the **Access Token** — a long string of
-   letters and numbers.
-8. **COPY THE TOKEN NOW** to a private note (Simpro shows it only once).
-   If you lose it you'll just create a new key — no big deal.
+2. Click the **gear icon** (top right) → **System** → **Setup** → **API Keys** → **Add**.
+3. Name it after yourself, e.g. `Jane Smith - Claude Desktop`.
+4. Linked Employee: choose your own employee record.
+5. Permissions: read-only is fine to start.
+6. Click **Save**. Simpro shows the **Access Token** — a long string. **Copy it now** — Simpro shows it only once.
 
-> **Important.** Treat the token like a password. Never email it in plain
-> text outside the company, never paste it in a group chat, never include
-> it in a screenshot. Send it only to IT (Tayfun / Sinan) and only via
-> direct message or our internal chat.
+Treat this token like a password. Save it in your password manager.
 
----
-
-## Part 2 — Send your Simpro API key to IT
-
-In a direct message (not a group chat) to **Tayfun** or **Sinan**, send:
-
-> Hi, here's my Simpro API key for the Claude tool: `<paste token here>`
->
-> I work in: Plumbing only / Energy only / both
-
-IT will reply with:
-
-- The **Plumbing URL**: `https://goldman-ubuntu.tail6b5a4b.ts.net/mcp/plumbing`
-- The **Energy URL**: `https://goldman-ubuntu.tail6b5a4b.ts.net/mcp/energy`
-- Your **personal access token** — a long random string starting with
-  `smcp_...`
-
-> **Why two tokens?** Your **Simpro API key** stays on the Goldman
-> server — IT registers it for you. Your **personal access token** (the
-> `smcp_...` one) is what your Claude Desktop uses to prove it's you.
-> If you change PCs or suspect a leak, IT just gives you a new personal
-> token. Your Simpro key never has to leave the company.
-
----
-
-## Part 3 — Add the connector to Claude Desktop
+## Part 2 — Add the connector in Claude Desktop (1 minute)
 
 1. Open **Claude Desktop**.
-2. Click the **menu / profile icon** (top-left or bottom-left depending
-   on version) → **Settings**.
-3. Click **Connectors** in the left sidebar.
-4. Scroll down and click **Add custom connector**.
-5. Fill in **the first connector** (Plumbing):
+2. Menu icon (top-left or profile circle) → **Settings** → **Connectors**.
+3. Scroll down → **Add custom connector**.
+4. Fill in:
    - **Name:** `Goldman Plumbing`
-   - **Remote MCP server URL:** the **Plumbing URL** IT sent you
-   - Leave the **Advanced settings** fields (OAuth Client ID, OAuth Client
-     Secret) **EMPTY**.
-6. Click **Add**.
-7. The new connector appears in the list. Click **Connect** next to it.
-8. Your default browser opens a Goldman consent page on
-   `goldman-ubuntu.tail6b5a4b.ts.net`. **Paste your personal access token**
-   (the `smcp_...` one) into the field and click **Authorize**.
-9. The browser redirects back, and the connector now shows **Connected**.
+   - **Remote MCP server URL:** `https://goldman-ubuntu.tail6b5a4b.ts.net/mcp/plumbing`
+   - Leave the **Advanced settings** fields (OAuth Client ID, OAuth Client Secret) **empty**.
+5. Click **Add**.
+6. (Optional) Repeat with Name `Goldman Energy` and URL ending in `/mcp/energy`.
 
-10. **Repeat steps 4–9** for Energy:
-    - **Name:** `Goldman Energy`
-    - **Remote MCP server URL:** the **Energy URL** IT sent you
-    - Same personal token on the consent page
+## Part 3 — Connect (1 minute)
 
-> If you only need one company, just skip the second one.
+1. Click **Connect** on the new connector. Your default browser opens a Goldman page.
+2. The page asks for your **Simpro API key** (the one from Part 1) and your **name**.
+3. Paste the key, check your name (auto-detected), click **Authorize**.
+4. The browser returns to Claude Desktop and the connector shows **Connected**.
+5. If you added Energy too, do the same for it.
 
-> **The bearer token does NOT go in the "Add custom connector" dialog.**
-> Leave both Advanced fields empty there. The token is pasted on the
-> Goldman consent page that opens *after* you click Connect.
+**No second token. No emailing IT. No waiting.**
 
 ---
 
@@ -165,7 +125,9 @@ during the safe period.
 |---|---|
 | Claude Desktop doesn't show "Add custom connector" | Your Claude plan likely doesn't support Custom Connectors. Free plan won't work — needs Pro / Max / Team / Enterprise. |
 | Browser shows "Your connection is not private" / certificate error | Disable "Use secure DNS" in your browser (Brave: Settings → Privacy → Use secure DNS = OFF). Then reload. |
-| Consent page says "That token is not registered" | The personal token (smcp_...) was typed/pasted wrong, or IT hasn't issued one yet. Triple-check no spaces before/after, then ask IT to verify or re-issue. |
+| Page says "Simpro rejected that API key" | The Simpro key was typed/pasted wrong, or it was deleted in Simpro. Generate a fresh one (Part 1) and try again. |
+| Page says "no access to Goldman companies" | Your Simpro user account doesn't have access to company 4 or 37. Ask Simpro IT (Tayfun) to grant access. |
+| Page says "Couldn't reach Simpro" | Simpro's API is slow or down. Wait a minute and retry. |
 | Connector says "Authorization with the MCP server failed" | Click Connect again and re-do the consent. If it keeps failing, ask IT to check the server. |
 | Connector says "403" or "does not have access to energy" (or plumbing) | Your token only allows one company. Ask IT to grant access to both. |
 | Claude finds zero quotes / jobs for a customer that clearly has them | Phrase the request as *"find quotes **for** customer X"* (not *"about"*). |
@@ -175,15 +137,16 @@ during the safe period.
 
 ## Rotating your tokens
 
-If you suspect your token leaked, leave Goldman, or just want fresh
+If you suspect your Simpro key leaked, leave Goldman, or just want fresh
 credentials:
 
-- **Personal access token (`smcp_...`):** ask IT to revoke and re-issue.
-  Takes 30 seconds.
-- **Simpro API key:** log into Simpro, delete the old key, create a new
-  one, send the new one to IT.
+- Log into Simpro, delete the old key, create a new one.
+- Re-click **Connect** in Claude Desktop and paste the new Simpro key.
 
-Do them in either order.
+If you want to completely remove your AI tool access:
+
+- Open <https://goldman-ubuntu.tail6b5a4b.ts.net/unenroll> in your browser.
+- Paste your current Simpro key. Click Remove.
 
 ---
 
