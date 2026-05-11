@@ -41,6 +41,11 @@ function withHeaders(res: Response): Response {
   return res;
 }
 
+/** Strip control chars from a string before logging to prevent log forgery. */
+function sanitizeForLog(s: string): string {
+  return s.replace(/[\r\n\t]/g, " ").slice(0, 100);
+}
+
 function findUserByKeyHash(tokensFile: string, hash: string): { smcpToken: string; record: TokenRecord } | null {
   const store = loadTokens(tokensFile);
   for (const [smcpToken, record] of Object.entries(store.tokens)) {
@@ -69,7 +74,7 @@ export function attachAdminRoutes(router: Router, config: Config): void {
     }
     const actor = (res.locals as { admin: { name: string } }).admin.name;
     const ok = await removeUser(config.SIMPRO_TOKENS_FILE, found.smcpToken);
-    log.info(`admin.action actor=${actor} action=revoke target=${found.record.name} ok=${ok}`);
+    log.info(`admin.action actor=${sanitizeForLog(actor)} action=revoke target=${sanitizeForLog(found.record.name)} ok=${ok}`);
     res.redirect("/admin");
   });
 
@@ -83,7 +88,7 @@ export function attachAdminRoutes(router: Router, config: Config): void {
     const nextValue = !(found.record.writeEnabled ?? false);
     const actor = (res.locals as { admin: { name: string } }).admin.name;
     await updateUser(config.SIMPRO_TOKENS_FILE, found.smcpToken, { writeEnabled: nextValue });
-    log.info(`admin.action actor=${actor} action=toggle-write target=${found.record.name} newValue=${nextValue}`);
+    log.info(`admin.action actor=${sanitizeForLog(actor)} action=toggle-write target=${sanitizeForLog(found.record.name)} newValue=${nextValue}`);
     res.redirect("/admin");
   });
 
@@ -138,7 +143,7 @@ export function attachAdminRoutes(router: Router, config: Config): void {
       return;
     }
     const actor = (res.locals as { admin: { name: string } }).admin.name;
-    log.info(`admin.action actor=${actor} action=create target=${result.record.name} idempotent=${result.wasIdempotent}`);
+    log.info(`admin.action actor=${sanitizeForLog(actor)} action=create target=${sanitizeForLog(result.record.name)} idempotent=${result.wasIdempotent}`);
     withHeaders(res).type("text/html").send(renderManualCreateResult(result.record, result.smcpToken));
   });
 }
