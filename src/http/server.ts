@@ -41,6 +41,7 @@ import {
   touchTokenLastUsed,
 } from "./tokens.js";
 import { recordAudit } from "./audit.js";
+import { RateLimiter } from "./rateLimit.js";
 import { GoldmanOAuthProvider, attachConsentRoutes } from "./oauth.js";
 import { attachUnenrollRoutes } from "./unenroll.js";
 import { attachAdminRoutes } from "./admin.js";
@@ -76,6 +77,19 @@ function describeRpcMethod(body: unknown): { method: string; toolName?: string }
 
 export async function runHttp({ config }: RunHttpOptions): Promise<void> {
   const app = express();
+
+  // Per-user MCP rate limiter (in-memory, resets on restart — acceptable:
+  // a restart already interrupts any runaway loop).
+  const mcpRateLimiter = new RateLimiter({
+    windowMs: config.SIMPRO_RATE_WINDOW_MS,
+    softLimit: config.SIMPRO_RATE_SOFT_LIMIT,
+    hardLimit: config.SIMPRO_RATE_HARD_LIMIT,
+  });
+  const rateSweep = setInterval(
+    () => mcpRateLimiter.sweep(),
+    config.SIMPRO_RATE_WINDOW_MS,
+  );
+  rateSweep.unref(); // don't keep the process alive just for the sweep
 
   // We bind to 127.0.0.1 (or a Tailscale IP) and sit behind Tailscale Funnel,
   // which terminates TLS and forwards plaintext HTTP to us with X-Forwarded-*
@@ -272,6 +286,20 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
       return;
     }
 
+    const verdict = mcpRateLimiter.check(auth.token);
+    if (verdict === "hard") {
+      log.warn(`[rate] HARD user=${auth.record.name.replace(/[\r\n\t]/g, " ").slice(0, 80)} company=${company}`);
+      res.status(429).json({
+        jsonrpc: "2.0",
+        error: { code: -32004, message: "Rate limit exceeded — wait a few minutes and try again." },
+        id: null,
+      });
+      return;
+    }
+    if (verdict === "soft") {
+      log.warn(`[rate] SOFT user=${auth.record.name.replace(/[\r\n\t]/g, " ").slice(0, 80)} company=${company}`);
+    }
+
     const userConfig = configForUser(config, auth.record, company);
     const client = new SimproClient(userConfig);
 
@@ -359,8 +387,17 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
 
   // Generic error catcher so we never leak stack traces.
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    log.error(`Unhandled HTTP error: ${maskToken(err.message)}`);
+    log.error(`[srv-error] Unhandled HTTP error: ${maskToken(err.message)}`);
     if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
+  });
+
+  process.on("uncaughtException", (err) => {
+    log.error(`[fatal] uncaughtException: ${maskToken(err instanceof Error ? (err.stack ?? err.message) : String(err))}`);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    log.error(`[fatal] unhandledRejection: ${maskToken(reason instanceof Error ? (reason.stack ?? reason.message) : String(reason))}`);
+    process.exit(1);
   });
 
   return new Promise((resolve, reject) => {
