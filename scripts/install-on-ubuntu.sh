@@ -221,6 +221,17 @@ else
   exit 1
 fi
 
+# --- S6: backups + timers ---
+install -d -o simpro-mcp -g simpro-mcp -m 700 /opt/simpro-mcp/backups
+cp /opt/simpro-mcp/scripts/simpro-mcp-backup-tokens.service /etc/systemd/system/
+cp /opt/simpro-mcp/scripts/simpro-mcp-backup-tokens.timer   /etc/systemd/system/
+cp /opt/simpro-mcp/scripts/simpro-mcp-backup-audit.service  /etc/systemd/system/
+cp /opt/simpro-mcp/scripts/simpro-mcp-backup-audit.timer    /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now simpro-mcp-backup-tokens.timer
+systemctl enable --now simpro-mcp-backup-audit.timer
+echo "S6 backup timers installed and enabled."
+
 # ---------------------------------------------------------------------------
 # 7. Firewall: allow Tailscale only, block port $HTTP_PORT from elsewhere
 # ---------------------------------------------------------------------------
