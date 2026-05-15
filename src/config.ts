@@ -70,6 +70,15 @@ const ConfigSchema = z.object({
   // If unset, falls back to http://<bind-host>:<port> which only works for
   // localhost testing. For production, set this in .env.
   SIMPRO_PUBLIC_BASE_URL: z.string().default(""),
+
+  // Per-user MCP rate limiting (HTTP mode). Keyed by smcp_ token.
+  // Soft = log one warning per user per window. Hard = reject with 429.
+  // Defaults sized for a small internal team; tune in .env after observing
+  // real traffic. A human chatting never approaches the soft limit; a
+  // runaway tool-call loop trips the hard ceiling.
+  SIMPRO_RATE_WINDOW_MS: intFromString(300_000, 1_000, 3_600_000),
+  SIMPRO_RATE_SOFT_LIMIT: intFromString(120, 1, 100_000),
+  SIMPRO_RATE_HARD_LIMIT: intFromString(300, 1, 100_000),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
