@@ -1,0 +1,10 @@
+[Unit]
+Description=Simpro MCP — tokens/env backup snapshot
+After=simpro-mcp.service
+
+[Service]
+Type=oneshot
+User=simpro-mcp
+Group=simpro-mcp
+WorkingDirectory=/opt/simpro-mcp
+ExecStart=/bin/bash -c '/opt/simpro-mcp/scripts/backup.sh tokens && /opt/simpro-mcp/scripts/backup.sh env && /opt/simpro-mcp/scripts/backup.sh prune'

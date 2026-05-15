@@ -1,0 +1,10 @@
+[Unit]
+Description=Simpro MCP — audit log daily backup + monthly archive
+After=simpro-mcp.service
+
+[Service]
+Type=oneshot
+User=simpro-mcp
+Group=simpro-mcp
+WorkingDirectory=/opt/simpro-mcp
+ExecStart=/opt/simpro-mcp/scripts/backup.sh audit
