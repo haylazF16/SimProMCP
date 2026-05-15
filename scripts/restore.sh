@@ -34,9 +34,14 @@ read -r -p "Type 'yes' to proceed: " ans
 [ "${ans}" = "yes" ] || { echo "aborted"; exit 0; }
 
 echo "Stopping simpro-mcp..."
-systemctl stop simpro-mcp
+if ! systemctl stop simpro-mcp; then
+  echo "ERROR: could not stop simpro-mcp (are you root? try: sudo $0 ...)." >&2
+  echo "Nothing was changed. The service is still running." >&2
+  exit 1
+fi
 
-cp "${DEST}" "${DEST}.pre-restore.$(date -u +%Y%m%dT%H%M%SZ)" 2>/dev/null || true
+PRE_RESTORE="${DEST}.pre-restore.$(date -u +%Y%m%dT%H%M%SZ)"
+cp "${DEST}" "${PRE_RESTORE}" 2>/dev/null || PRE_RESTORE="(none — ${DEST} did not exist)"
 cp "${SRC}" "${DEST}.tmp" && mv "${DEST}.tmp" "${DEST}"
 chown simpro-mcp:simpro-mcp "${DEST}" 2>/dev/null || true
 chmod 600 "${DEST}"
@@ -44,4 +49,25 @@ chmod 600 "${DEST}"
 echo "Starting simpro-mcp..."
 systemctl start simpro-mcp
 sleep 2
-systemctl is-active simpro-mcp && echo "restore OK" || { echo "service did not come up — check journalctl" >&2; exit 1; }
+if systemctl is-active --quiet simpro-mcp; then
+  echo "restore OK — service is running."
+else
+  {
+    echo ""
+    echo "!!! RESTORE PROBLEM !!!"
+    echo "The simpro-mcp service did NOT come back up and is currently STOPPED."
+    echo ""
+    echo "Most likely cause: this script was not run as root, so the file"
+    echo "ownership (chown simpro-mcp) could not be set and the service user"
+    echo "cannot read ${DEST}."
+    echo ""
+    echo "Try:"
+    echo "  1. Re-run this script with sudo:  sudo $0 ${KIND} ${SRC}"
+    echo "  2. Inspect why it failed:         sudo journalctl -u simpro-mcp -n 50 --no-pager"
+    echo ""
+    echo "Your previous ${KIND} file was saved to:"
+    echo "  ${PRE_RESTORE}"
+    echo "Restore THAT if you need to roll back this restore attempt."
+  } >&2
+  exit 1
+fi
