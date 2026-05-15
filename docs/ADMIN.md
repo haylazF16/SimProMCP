@@ -138,3 +138,68 @@ needed.
 - Editing display name after creation
 - Paginated audit log view
 - Live tail / WebSocket dashboard
+
+## Backups & disaster recovery
+
+Local backups run automatically via systemd timers:
+
+- `tokens.json` — every 15 min, only when it changed. Newest 96 kept
+  (~24h). Dir: `/opt/simpro-mcp/backups/tokens/`
+- `.env` — snapshotted on change, newest 5 kept.
+  Dir: `/opt/simpro-mcp/backups/env/`
+- `audit.log` — `audit.log.current.bak` refreshed daily (single rolling
+  copy); on the 1st of each month the previous month is archived to
+  `audit-YYYY-MM.log.gz` and kept **forever**.
+  Dir: `/opt/simpro-mcp/backups/audit/`
+
+### Restore tokens.json (undo a bad edit / corruption)
+
+```bash
+ls -lt /opt/simpro-mcp/backups/tokens/         # find the snapshot you want
+sudo /opt/simpro-mcp/scripts/restore.sh tokens \
+     /opt/simpro-mcp/backups/tokens/tokens.json.<TS>.bak
+```
+
+The script stops the service, validates the backup is real JSON, keeps a
+`tokens.json.pre-restore.<TS>` safety copy, restores, and restarts. Run it
+with `sudo` — without root it can't set file ownership and the service
+won't come back up (the script tells you this if it happens).
+
+### Health check
+
+```bash
+sudo /opt/simpro-mcp/scripts/status.sh
+```
+
+One screen: service state, port reachability, Funnel status, newest
+backups, timer health, error count in the last 24h. Exit code 0 = healthy.
+**There is no push alerting** — you must run this yourself (e.g. each
+morning, or when something seems off). This is a deliberate, accepted
+trade-off for operational simplicity.
+
+### Known unmitigated risk: whole-server loss
+
+Backups are **local to the Ubuntu box**. They protect against bad edits,
+corruption, and accidental deletion. They do **NOT** protect against disk
+failure, theft, or total loss of the server. If the box is lost, every
+coworker must re-enroll (and re-create their Simpro API key). Adding an
+off-server backup tier is a separate, deferred piece of work.
+
+## Rate limiting
+
+Per-user MCP rate limits protect against a runaway AI tool-call loop or an
+abusive user hammering Simpro's API. Two tiers (env-tunable):
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `SIMPRO_RATE_WINDOW_MS` | 300000 (5 min) | Sliding window |
+| `SIMPRO_RATE_SOFT_LIMIT` | 120 | Over this: ONE `[warn] [rate] SOFT user=…` per user per window. Not blocked. |
+| `SIMPRO_RATE_HARD_LIMIT` | 300 | Over this: request rejected with a 429-style JSON-RPC error; `[warn] [rate] HARD` logged. |
+
+A normal chat session never approaches the soft limit. A legitimate big
+batch ("update 80 jobs") may briefly cross soft (fine — warn only). Only a
+stuck loop reaches hard. Grep the journal for `[rate]` during a status
+review. State is in-memory and resets on service restart (acceptable — a
+restart already interrupts a runaway loop). Keep `SOFT_LIMIT < HARD_LIMIT`;
+if you set soft above hard, the soft warning never fires (calls go straight
+to a hard block past the ceiling).
