@@ -44,10 +44,15 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
         // Simpro list endpoints silently ignore unknown filter params, so
         // CustomerID/SiteID/Status/DateIssued* never worked server-side. We
         // fetch a large page and filter in-process instead.
-        const fetchSize = Math.min(ctx.config.SIMPRO_MAX_PAGE_SIZE, 250);
+        // Filtered search needs a wide, NEWEST-first scan window. Simpro v1.0
+        // list endpoints default to oldest-first by ID, so without orderby the
+        // 100-record default would only ever cover the most ancient records and
+        // miss the customer's recent jobs. 250 is the agreed scan cap.
+        const fetchSize = 250;
         const resp = await ctx.client.get<unknown>(path, {
           page: 1,
           pageSize: fetchSize,
+          orderby: "-ID",
           // Only the fields this tool's formatRow reads — keeps the payload
           // small and avoids fetching HTML-laden columns we never display.
           columns: "ID,JobNumber,Description,Status,Customer,Site,DateIssued",
