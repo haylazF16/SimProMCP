@@ -1,9 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
-import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
+import { applyClientFilters } from "../utils/listFilter.js";
 import { stripHtml } from "../utils/sanitise.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, isoDateSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
@@ -14,7 +14,7 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
   // ---- 5. search ----
   server.tool(
     "simpro_search_jobs",
-    "Search Simpro jobs. To find jobs FOR a customer, pass `customerId` if known, or `customerName` to auto-resolve. The `query` field ONLY matches inside the job's Description (HTML body) — DO NOT put a customer name there.",
+    "Search Simpro jobs. Filters by customer (pass `customerId`, or `customerName` to auto-resolve), `siteId`, `status` (case-insensitive name), and `dateFrom`/`dateTo` (issue date, inclusive, yyyy-mm-dd) — all applied client-side after fetching. The `query` field ONLY matches inside the job's Description (HTML body) — DO NOT put a customer name there.",
     {
       query: z.string().optional()
         .describe("Free-text search inside the job's Description (HTML body). Use customerId/customerName for customer-based filtering."),
@@ -41,25 +41,34 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
           resolvedNote = lookup.note + "\n\n";
         }
         const path = ctx.client.companyPath(ENDPOINTS.jobs);
-        const pg = paginationQuery(ctx.config, args.page, args.pageSize);
+        // Simpro list endpoints silently ignore unknown filter params, so
+        // CustomerID/SiteID/Status/DateIssued* never worked server-side. We
+        // fetch a large page and filter in-process instead.
+        const fetchSize = Math.min(ctx.config.SIMPRO_MAX_PAGE_SIZE, 250);
         const resp = await ctx.client.get<unknown>(path, {
-          ...pg.query,
+          page: 1,
+          pageSize: fetchSize,
           // Only the fields this tool's formatRow reads — keeps the payload
           // small and avoids fetching HTML-laden columns we never display.
           columns: "ID,JobNumber,Description,Status,Customer,Site,DateIssued",
           ...buildKeywordFilter(args.query, "Description"),
-          CustomerID: customerId,
-          SiteID: args.siteId,
-          Status: args.status,
-          DateIssuedFrom: args.dateFrom,
-          DateIssuedTo: args.dateTo,
         });
-        const items = extractList(resp) as SimproJob[];
+        const fetched = extractList(resp) as SimproJob[];
+        const filtered = applyClientFilters(
+          fetched,
+          { customerId, siteId: args.siteId, status: args.status, dateFrom: args.dateFrom, dateTo: args.dateTo },
+          { dateField: "DateIssued" },
+        );
+        const limit = args.pageSize ?? ctx.config.SIMPRO_DEFAULT_PAGE_SIZE;
+        const items = filtered.slice(0, limit);
+        const anyFilter =
+          customerId !== undefined || args.siteId !== undefined ||
+          args.status !== undefined || args.dateFrom !== undefined || args.dateTo !== undefined;
         const result = formatList(
           items,
           undefined,
-          pg.page,
-          pg.pageSize,
+          1,
+          limit,
           (j) => {
             const status = typeof j.Status === "string" ? j.Status : j.Status?.Name ?? "";
             return `#${j.ID ?? "?"} job ${j.JobNumber ?? ""} — ${stripHtml(j.Description) || "(no description)"}` +
@@ -72,6 +81,10 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
           args.raw === true,
         );
         if (resolvedNote) result.content[0].text = resolvedNote + result.content[0].text;
+        if (fetched.length === fetchSize && anyFilter) {
+          result.content[0].text +=
+            `\n\n(Showing matches within the first ${fetchSize} records scanned. If an expected match is missing, narrow your search.)`;
+        }
         return result;
       }),
   );

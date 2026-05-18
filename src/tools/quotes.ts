@@ -1,9 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
-import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
+import { applyClientFilters } from "../utils/listFilter.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, isoDateSchema } from "../utils/schemas.js";
 import { pruneEmpty, stripHtml } from "../utils/sanitise.js";
 import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard } from "./_shared.js";
@@ -13,7 +13,7 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
   // ---- 7. search ----
   server.tool(
     "simpro_search_quotes",
-    "Search Simpro quotes. To find quotes BELONGING to a customer, pass that customer's id as `customerId` — or pass `customerName` and the tool will resolve the id for you. The `query` field is a free-text search that ONLY matches inside the quote's Description (HTML body) — DO NOT put a customer name there, it will return nothing because Simpro descriptions rarely contain the customer's name.",
+    "Search Simpro quotes. Filters by customer (pass `customerId`, or `customerName` to auto-resolve), `siteId`, and `status` (case-insensitive name) — applied client-side after fetching. The `query` field is a free-text search that ONLY matches inside the quote's Description (HTML body) — DO NOT put a customer name there, it will return nothing because Simpro descriptions rarely contain the customer's name.",
     {
       query: z.string().optional()
         .describe("Free-text search inside the quote's Description (HTML body). Use customerId/customerName to filter by customer."),
@@ -41,19 +41,29 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
           resolvedNote = lookup.note + "\n\n";
         }
         const path = ctx.client.companyPath(ENDPOINTS.quotes);
-        const pg = paginationQuery(ctx.config, args.page, args.pageSize);
+        // Simpro list endpoints silently ignore unknown filter params, so
+        // CustomerID/SiteID/Status never worked server-side. Fetch a large
+        // page and filter in-process instead.
+        const fetchSize = Math.min(ctx.config.SIMPRO_MAX_PAGE_SIZE, 250);
         const resp = await ctx.client.get<unknown>(path, {
-          ...pg.query,
+          page: 1,
+          pageSize: fetchSize,
           // Only the fields this tool's formatRow reads.
           columns: "ID,Description,Status,Customer,Site",
           ...buildKeywordFilter(args.query, "Description"),
-          CustomerID: customerId,
-          SiteID: args.siteId,
-          Status: args.status,
         });
-        const items = extractList(resp) as SimproQuote[];
+        const fetched = extractList(resp) as SimproQuote[];
+        const filtered = applyClientFilters(
+          fetched,
+          { customerId, siteId: args.siteId, status: args.status },
+          { dateField: "DateIssued" },
+        );
+        const limit = args.pageSize ?? ctx.config.SIMPRO_DEFAULT_PAGE_SIZE;
+        const items = filtered.slice(0, limit);
+        const anyFilter =
+          customerId !== undefined || args.siteId !== undefined || args.status !== undefined;
         const result = formatList(
-          items, undefined, pg.page, pg.pageSize,
+          items, undefined, 1, limit,
           (qt) => {
             const status = typeof qt.Status === "string" ? qt.Status : qt.Status?.Name ?? "";
             return `#${qt.ID ?? "?"} — ${stripHtml(qt.Description) || "(no description)"}` +
@@ -65,6 +75,10 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
         );
         if (resolvedNote) {
           result.content[0].text = resolvedNote + result.content[0].text;
+        }
+        if (fetched.length === fetchSize && anyFilter) {
+          result.content[0].text +=
+            `\n\n(Showing matches within the first ${fetchSize} records scanned. If an expected match is missing, narrow your search.)`;
         }
         return result;
       }),

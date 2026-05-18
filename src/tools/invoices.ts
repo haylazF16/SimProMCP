@@ -1,9 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
-import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
+import { applyClientFilters } from "../utils/listFilter.js";
 import { idSchema, rawFlagSchema, isoDateSchema } from "../utils/schemas.js";
 import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx } from "./_shared.js";
 import { SimproInvoice } from "../simpro/types.js";
@@ -12,7 +12,7 @@ export function registerInvoiceTools(server: McpServer, ctx: ToolCtx) {
   // ---- 9. search ----
   server.tool(
     "simpro_search_invoices",
-    "Search Simpro invoices. To find invoices FOR a customer, pass `customerId` or `customerName` (auto-resolved). The `query` field ONLY matches the InvoiceNo, NOT the customer name.",
+    "Search Simpro invoices. Filters by customer (pass `customerId` or `customerName`, auto-resolved), `status` (case-insensitive name), and `dateFrom`/`dateTo` (issue date, inclusive, yyyy-mm-dd) — applied client-side after fetching. The `query` field ONLY matches the InvoiceNo, NOT the customer name.",
     {
       query: z.string().optional()
         .describe("Free-text search against InvoiceNo. Use customerId/customerName for customer-based filtering."),
@@ -38,20 +38,30 @@ export function registerInvoiceTools(server: McpServer, ctx: ToolCtx) {
           resolvedNote = lookup.note + "\n\n";
         }
         const path = ctx.client.companyPath(ENDPOINTS.invoices);
-        const pg = paginationQuery(ctx.config, args.page, args.pageSize);
+        // Simpro list endpoints silently ignore unknown filter params, so
+        // CustomerID/Status/DateIssued* never worked server-side. Fetch a
+        // large page and filter in-process instead.
+        const fetchSize = Math.min(ctx.config.SIMPRO_MAX_PAGE_SIZE, 250);
         const resp = await ctx.client.get<unknown>(path, {
-          ...pg.query,
+          page: 1,
+          pageSize: fetchSize,
           // Only the fields this tool's formatRow reads.
           columns: "ID,Customer,Total,Status,DateIssued",
           ...buildKeywordFilter(args.query, "InvoiceNo"),
-          CustomerID: customerId,
-          Status: args.status,
-          DateIssuedFrom: args.dateFrom,
-          DateIssuedTo: args.dateTo,
         });
-        const items = extractList(resp) as SimproInvoice[];
+        const fetched = extractList(resp) as SimproInvoice[];
+        const filtered = applyClientFilters(
+          fetched,
+          { customerId, status: args.status, dateFrom: args.dateFrom, dateTo: args.dateTo },
+          { dateField: "DateIssued" },
+        );
+        const limit = args.pageSize ?? ctx.config.SIMPRO_DEFAULT_PAGE_SIZE;
+        const items = filtered.slice(0, limit);
+        const anyFilter =
+          customerId !== undefined || args.status !== undefined ||
+          args.dateFrom !== undefined || args.dateTo !== undefined;
         const result = formatList(
-          items, undefined, pg.page, pg.pageSize,
+          items, undefined, 1, limit,
           (inv) => {
             const status = typeof inv.Status === "string" ? inv.Status : inv.Status?.Name ?? "";
             const total = typeof inv.Total === "number" ? inv.Total : inv.Total?.IncTax;
@@ -64,6 +74,10 @@ export function registerInvoiceTools(server: McpServer, ctx: ToolCtx) {
           resp, args.raw === true,
         );
         if (resolvedNote) result.content[0].text = resolvedNote + result.content[0].text;
+        if (fetched.length === fetchSize && anyFilter) {
+          result.content[0].text +=
+            `\n\n(Showing matches within the first ${fetchSize} records scanned. If an expected match is missing, narrow your search.)`;
+        }
         return result;
       }),
   );
