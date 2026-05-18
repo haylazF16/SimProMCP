@@ -64,6 +64,7 @@ async function resolveSupplierByName(
   const resp = await ctx.client.get<unknown>(path, {
     page: 1,
     pageSize: maxCandidates,
+    columns: "ID,Name",
     Name: likeWildcard(name),
   });
   const candidates = (extractList(resp) as { ID?: number; Name?: string }[])
@@ -106,6 +107,8 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, page, pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Name,Phone,Email,Archived",
           ...buildKeywordFilter(query, "Name"),
         });
         const items = extractList(resp) as SimproSupplier[];
@@ -248,6 +251,8 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Reference,Vendor,Stage,Totals,DateIssued",
           ...buildKeywordFilter(args.query, "Reference"),
           // Simpro filters by dotted column path on relations.
           "Vendor.ID": supplierId,
@@ -465,6 +470,8 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,VendorInvoiceNo,Vendor,Total,DateIssued,DueDate,VendorOrder",
           ...buildKeywordFilter(args.query, "VendorInvoiceNo"),
           "Vendor.ID": supplierId,
           DateIssuedFrom: args.dateFrom,
@@ -611,7 +618,11 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
         let orderId = vendorOrderId;
         if (!orderId) {
           const listPath = ctx.client.companyPath(ENDPOINTS.vendorReceipts);
-          const lookup = await ctx.client.get<unknown>(listPath, { ID: supplierInvoiceId, pageSize: 1 });
+          const lookup = await ctx.client.get<unknown>(listPath, {
+            ID: supplierInvoiceId,
+            pageSize: 1,
+            columns: "ID,VendorOrder",
+          });
           const items = extractList(lookup) as SimproVendorReceipt[];
           if (items.length === 0 || !items[0].VendorOrder?.ID) {
             return textResponse(

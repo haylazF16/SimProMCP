@@ -44,6 +44,8 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, page, pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,GivenName,FamilyName,Email,WorkPhone,Position",
           ...buildKeywordFilter(query, "GivenName"),
         });
         const items = extractList(resp) as SimproContact[];
@@ -101,6 +103,8 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Description,Status,Customer",
           ...buildKeywordFilter(args.query, "Description"),
           "Customer.ID": customerId,
         });

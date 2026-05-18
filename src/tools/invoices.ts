@@ -41,6 +41,8 @@ export function registerInvoiceTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Customer,Total,Status,DateIssued",
           ...buildKeywordFilter(args.query, "InvoiceNo"),
           CustomerID: customerId,
           Status: args.status,

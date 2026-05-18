@@ -66,6 +66,8 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, page, pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,PartNo,Name,TradePriceInc,SellPrice,IsInventory,IsAsset",
           ...buildKeywordFilter(query, "Name"),
           ...buildKeywordFilter(partNo, "PartNo"),
         });
@@ -191,6 +193,8 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, page, pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Name",
           ...buildKeywordFilter(query, "Name"),
         });
         const items = extractList(resp) as SimproStorageDevice[];
@@ -235,6 +239,8 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, page, pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,StorageDevice,Value,Approved",
           "StorageDevice.ID": storageDeviceId,
         });
         const items = extractList(resp) as SimproStockTake[];

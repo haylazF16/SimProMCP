@@ -64,6 +64,8 @@ export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads (Payment is a nested object).
+          columns: "ID,Payment",
           "Customer.ID": customerId,
           DateFrom: args.dateFrom,
           DateTo: args.dateTo,
@@ -110,6 +112,8 @@ export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Customer,InvoiceNo,Total,Stage",
           "Customer.ID": customerId,
           Stage: args.stage,
         });
@@ -167,6 +171,8 @@ export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Customer",
           "Customer.ID": customerId,
         });
         const items = extractList(resp) as SimproRecurringInvoice[];

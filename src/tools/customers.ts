@@ -68,6 +68,8 @@ export function registerCustomerTools(server: McpServer, ctx: ToolCtx) {
         // "FAMILY, GIVEN" too).
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields customerLabel() + formatRow read.
+          columns: "ID,CompanyName,GivenName,FamilyName,Email,Phone,Type,Archived",
           ...buildKeywordFilter(query, "CompanyName"),
         });
         const items = extractList(resp) as SimproCustomer[];

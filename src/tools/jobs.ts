@@ -44,6 +44,9 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads — keeps the payload
+          // small and avoids fetching HTML-laden columns we never display.
+          columns: "ID,JobNumber,Description,Status,Customer,Site,DateIssued",
           ...buildKeywordFilter(args.query, "Description"),
           CustomerID: customerId,
           SiteID: args.siteId,

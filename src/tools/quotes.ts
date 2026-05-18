@@ -44,6 +44,8 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Description,Status,Customer,Site",
           ...buildKeywordFilter(args.query, "Description"),
           CustomerID: customerId,
           SiteID: args.siteId,

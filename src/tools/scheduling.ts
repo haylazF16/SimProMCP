@@ -60,6 +60,8 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, page, pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Type,Date,Staff,TotalHours,Reference",
           "Staff.ID": staffId,
           DateFrom: dateFrom,
           DateTo: dateTo,
@@ -94,6 +96,10 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.timesheets);
         const pg = paginationQuery(ctx.config, page, pageSize);
+        // NOTE: no `columns` here — the /timesheets/ list endpoint keys rows
+        // by `UID` (not `ID`) and the exact Simpro column names for this
+        // endpoint are unverified. A wrong `columns` set risks a 400 or empty
+        // rows, so we take the safe full-fetch fallback for this tool only.
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
           EmployeeID: employeeId,
@@ -145,6 +151,8 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
         const pg = paginationQuery(ctx.config, args.page, args.pageSize);
         const resp = await ctx.client.get<unknown>(path, {
           ...pg.query,
+          // Only the fields this tool's formatRow reads.
+          columns: "ID,Customer,Site,Description",
           "Customer.ID": customerId,
         });
         const items = extractList(resp) as SimproRecurringJob[];
