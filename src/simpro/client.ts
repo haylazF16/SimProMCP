@@ -1,3 +1,4 @@
+import { Agent } from "undici";
 import { Config } from "../config.js";
 import { log } from "../logger.js";
 import { SimproApiError, SimproNetworkError } from "./errors.js";
@@ -18,6 +19,14 @@ export interface RequestOptions {
 
 const DEFAULT_RETRYABLE_METHODS = new Set(["GET", "HEAD"]);
 const MAX_ATTEMPTS = 3;
+
+// Reuse TLS connections to Simpro instead of a fresh handshake per call.
+// Simpro is in Australia; the TLS handshake dominated per-request latency.
+const keepAliveAgent = new Agent({
+  keepAliveTimeout: 30_000,
+  keepAliveMaxTimeout: 60_000,
+  connections: 16,
+});
 
 export class SimproClient {
   constructor(private readonly cfg: Config) {}
@@ -129,6 +138,7 @@ export class SimproClient {
         headers,
         body: bodyStr,
         signal: controller.signal,
+        dispatcher: keepAliveAgent,
       });
     } catch (err: unknown) {
       clearTimeout(timer);

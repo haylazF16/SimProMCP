@@ -49,7 +49,7 @@ const ConfigSchema = z.object({
     .refine((v) => v.length > 0, "SIMPRO_COMPANY_ID is required"),
   SIMPRO_ENABLE_WRITE_TOOLS: boolFromString.default(false),
   SIMPRO_DRY_RUN: boolFromString.default(true),
-  SIMPRO_REQUEST_TIMEOUT_MS: intFromString(30_000, 1_000, 600_000),
+  SIMPRO_REQUEST_TIMEOUT_MS: intFromString(12_000, 1_000, 600_000),
   SIMPRO_MAX_PAGE_SIZE: intFromString(100, 1, 1000),
   SIMPRO_DEFAULT_PAGE_SIZE: intFromString(25, 1, 1000),
 
