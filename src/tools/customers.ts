@@ -5,7 +5,7 @@ import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, addressSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 import { SimproCustomer } from "../simpro/types.js";
 
 function customerLabel(c: SimproCustomer): string {
@@ -49,16 +49,19 @@ async function resolveCustomerPath(
 
 export function registerCustomerTools(server: McpServer, ctx: ToolCtx) {
   // ---- 1. search ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_customers",
     "Search customers in Simpro by name, company name, email, phone, or keyword. Returns a paginated list.",
+    () => (
     {
       query: z.string().optional().describe("Free-text search keyword."),
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async ({ query, page, pageSize, raw }) =>
+    }
+    ),
+    () => async ({ query, page, pageSize, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.customers);
         const pg = paginationQuery(ctx.config, page, pageSize);
@@ -88,16 +91,19 @@ export function registerCustomerTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 2. get ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_customer",
     "Get full details of a single Simpro customer by ID.",
+    () => (
     {
       customerId: idSchema,
       customerType: z.enum(["company", "individual"]).optional()
         .describe("Optional hint to skip auto-detection. Defaults to trying company then individual."),
       raw: rawFlagSchema,
-    },
-    async ({ customerId, customerType, raw }) =>
+    }
+    ),
+    () => async ({ customerId, customerType, raw }) =>
       safeRun(async () => {
         const { record, type } = await resolveCustomerPath(ctx, customerId, customerType);
         return formatRecord(
@@ -108,9 +114,11 @@ export function registerCustomerTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 12. create ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_create_customer",
     "Create a new customer in Simpro. Requires confirm=true. Honors SIMPRO_ENABLE_WRITE_TOOLS and SIMPRO_DRY_RUN.",
+    () => (
     {
       confirm: confirmSchema,
       customerType: z.enum(["company", "individual"]).optional()
@@ -123,8 +131,9 @@ export function registerCustomerTools(server: McpServer, ctx: ToolCtx) {
       mobile: z.string().optional(),
       address: addressSchema,
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const inferredType =
           args.customerType ?? (args.companyName ? "company" : (args.givenName || args.familyName) ? "individual" : undefined);
@@ -161,9 +170,11 @@ export function registerCustomerTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 18. update ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_update_customer",
     "Update an existing Simpro customer. Only provided fields are sent (PATCH semantics). Requires confirm=true.",
+    () => (
     {
       confirm: confirmSchema,
       customerId: idSchema,
@@ -177,8 +188,9 @@ export function registerCustomerTools(server: McpServer, ctx: ToolCtx) {
       mobile: z.string().optional(),
       address: addressSchema,
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload
           ? args.rawPayload

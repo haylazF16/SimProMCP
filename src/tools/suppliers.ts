@@ -11,7 +11,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
 import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter, likeWildcard } from "../utils/filter.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, addressSchema, isoDateSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
 import { resolveJobAssignment } from "../utils/resolveJobAssignment.js";
@@ -91,17 +91,20 @@ async function resolveSupplierByName(
 
 export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   // ---- search suppliers ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_suppliers",
     "Search Simpro suppliers (called 'vendors' in the API). `query` matches the supplier Name (substring). Returns a paginated list. NOTE: Goldman Plumbing's tenant has ~4,000+ suppliers — always pass a query unless you really want to page through everything.",
+    () => (
     {
       query: z.string().optional()
         .describe("Free-text search against the supplier's Name."),
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async ({ query, page, pageSize, raw }) =>
+    }
+    ),
+    () => async ({ query, page, pageSize, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.suppliers);
         const pg = paginationQuery(ctx.config, page, pageSize);
@@ -126,11 +129,14 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get supplier ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_supplier",
     "Get full details of a Simpro supplier (vendor) by ID, including address, banking, payment terms.",
-    { supplierId: idSchema, raw: rawFlagSchema },
-    async ({ supplierId, raw }) =>
+    () => (
+    { supplierId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ supplierId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.supplierById(supplierId));
         const resp = await ctx.client.get<SimproSupplier>(path);
@@ -139,9 +145,11 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- create supplier ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_create_supplier",
     "Create a new supplier in Simpro. Requires confirm=true. Honors SIMPRO_ENABLE_WRITE_TOOLS and SIMPRO_DRY_RUN.",
+    () => (
     {
       confirm: confirmSchema,
       name: z.string().min(1).describe("Supplier company name."),
@@ -153,8 +161,9 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       address: addressSchema,
       billingAddress: addressSchema,
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Name: args.name,
@@ -178,9 +187,11 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- update supplier ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_update_supplier",
     "Update a Simpro supplier. Only provided fields are sent (PATCH semantics). Requires confirm=true.",
+    () => (
     {
       confirm: confirmSchema,
       supplierId: idSchema,
@@ -194,8 +205,9 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       billingAddress: addressSchema,
       archived: z.boolean().optional().describe("Set true to archive (soft-delete) the supplier."),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Name: args.name,
@@ -221,9 +233,11 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- search vendor orders (purchase orders) ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_purchase_orders",
     "Search vendor orders (purchase orders raised to suppliers). To find POs FOR a supplier, pass `supplierId` if known, or `supplierName` to auto-resolve. The `query` field matches the PO `Reference` field (which usually contains a job number).",
+    () => (
     {
       query: z.string().optional().describe("Free-text search against the PO's Reference field."),
       supplierName: z.string().optional()
@@ -236,8 +250,9 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         let supplierId = args.supplierId;
         let resolvedNote = "";
@@ -278,11 +293,14 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get purchase order ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_purchase_order",
     "Get full details of a Simpro vendor order (purchase order) by ID.",
-    { purchaseOrderId: idSchema, raw: rawFlagSchema },
-    async ({ purchaseOrderId, raw }) =>
+    () => (
+    { purchaseOrderId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ purchaseOrderId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.vendorOrderById(purchaseOrderId));
         const resp = await ctx.client.get<SimproVendorOrder>(path);
@@ -303,9 +321,11 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   // doesn't roll up against any work and the PO is meaningless. We REQUIRE
   // jobId for that reason. If the job has multiple cost centres, the user
   // must also specify which one.
-  server.tool(
+  registerTool(
+    server,
     "simpro_create_purchase_order",
     "Create a new purchase order in Simpro, attached to a specific job's cost centre. Requires confirm=true. The PO is bound to the job so its cost rolls up correctly. If the job has multiple cost centres, also pass costCenterId. Use simpro_search_suppliers to find supplierId, simpro_search_jobs to find jobId. After creation, use simpro_add_purchase_order_item for line items.",
+    () => (
     {
       confirm: confirmSchema,
       jobId: idSchema
@@ -326,8 +346,9 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       privateNotes: z.string().optional()
         .describe("Internal-only notes."),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         // Resolve supplier name -> id.
         let supplierId = args.supplierId;
@@ -389,9 +410,11 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   // Verified live: POST /vendorOrders/{id}/catalogs/ with body shape:
   //   { Catalog: <int catalogId>, Price: <num>, Allocations: [{ Quantity: <int> }] }
   // Same Catalog can only appear ONCE per PO (duplicate-key constraint).
-  server.tool(
+  registerTool(
+    server,
     "simpro_add_purchase_order_item",
     "Add a line item to an existing Simpro purchase order. Requires confirm=true. The same catalog item can only appear once per PO — to change quantity, update the existing line.\n\nWORKFLOW for items from a supplier quote:\n  1. Call simpro_search_catalog with the part number to see if it already exists.\n  2. If found: use the returned catalogId here.\n  3. If NOT found: call simpro_create_catalog_item to add it (with name, partNo, tradePrice from the quote), then use the returned catalogId here. This is exactly how Goldman handles items that aren't in Simpro's catalog yet — they get added, then included on the PO.",
+    () => (
     {
       confirm: confirmSchema,
       purchaseOrderId: idSchema,
@@ -401,8 +424,9 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
         .describe("Unit price excluding tax. If omitted, Simpro uses the catalog's default trade price."),
       notes: z.string().optional(),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Catalog: Number(args.catalogId),
@@ -441,9 +465,11 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- search vendor receipts (supplier invoices) ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_supplier_invoices",
     "Search vendor receipts (supplier invoices / bills received). To find invoices FROM a supplier, pass `supplierId` if known, or `supplierName` to auto-resolve. The `query` field matches the supplier's invoice number (`VendorInvoiceNo`).",
+    () => (
     {
       query: z.string().optional().describe("Free-text search against VendorInvoiceNo."),
       supplierName: z.string().optional()
@@ -455,8 +481,9 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         let supplierId = args.supplierId;
         let resolvedNote = "";
@@ -503,14 +530,17 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   // For QUANTITIES you need the per-item GET, which exposes Allocations[] —
   // each allocation has Quantity{Received,Total} + StorageDevice + AssignedTo
   // (the job/cost-centre this line was raised for).
-  server.tool(
+  registerTool(
+    server,
     "simpro_list_purchase_order_items",
     "List the line items on a Simpro purchase order. Returns each line's catalog ID, part number, name, and unit price. NOTE: quantities are not in this list view — call simpro_get_purchase_order_item for the full record including quantity ordered/received.",
+    () => (
     {
       purchaseOrderId: idSchema,
       raw: rawFlagSchema,
-    },
-    async ({ purchaseOrderId, raw }) =>
+    }
+    ),
+    () => async ({ purchaseOrderId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.vendorOrderItems(purchaseOrderId));
         const resp = await ctx.client.get<unknown>(path);
@@ -536,15 +566,18 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get single PO line item (with quantity) ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_purchase_order_item",
     "Get full detail of a single line item on a Simpro purchase order, including the Allocations array which holds Quantity (Received + Total), StorageDevice, and the job/cost-centre this line was raised for.",
+    () => (
     {
       purchaseOrderId: idSchema,
       catalogId: idSchema.describe("The Catalog ID for the line — get this from simpro_list_purchase_order_items."),
       raw: rawFlagSchema,
-    },
-    async ({ purchaseOrderId, catalogId, raw }) =>
+    }
+    ),
+    () => async ({ purchaseOrderId, catalogId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.vendorOrderItemById(purchaseOrderId, catalogId));
         const resp = await ctx.client.get<{
@@ -569,15 +602,18 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- list supplier invoice line items ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_list_supplier_invoice_items",
     "List the line items on a Simpro supplier invoice (vendor receipt). Requires both the parent purchaseOrderId and the supplierInvoiceId.",
+    () => (
     {
       purchaseOrderId: idSchema.describe("Parent PO ID. Get this from simpro_search_supplier_invoices."),
       supplierInvoiceId: idSchema,
       raw: rawFlagSchema,
-    },
-    async ({ purchaseOrderId, supplierInvoiceId, raw }) =>
+    }
+    ),
+    () => async ({ purchaseOrderId, supplierInvoiceId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.vendorReceiptItems(purchaseOrderId, supplierInvoiceId));
         const resp = await ctx.client.get<unknown>(path);
@@ -604,16 +640,19 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   // path is /vendorOrders/{orderId}/receipts/{receiptId}. We auto-resolve
   // the order ID via a list-endpoint lookup so callers only need the
   // receipt ID.
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_supplier_invoice",
     "Get full details of a Simpro vendor receipt (supplier invoice) by ID. Auto-resolves the parent vendor order.",
+    () => (
     {
       supplierInvoiceId: idSchema,
       vendorOrderId: idSchema.optional()
         .describe("Optional: parent vendor order ID. If omitted, the tool resolves it automatically."),
       raw: rawFlagSchema,
-    },
-    async ({ supplierInvoiceId, vendorOrderId, raw }) =>
+    }
+    ),
+    () => async ({ supplierInvoiceId, vendorOrderId, raw }) =>
       safeRun(async () => {
         let orderId = vendorOrderId;
         if (!orderId) {

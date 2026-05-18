@@ -5,14 +5,16 @@ import { buildKeywordFilter } from "../utils/filter.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
 import { applyClientFilters } from "../utils/listFilter.js";
 import { idSchema, rawFlagSchema, isoDateSchema } from "../utils/schemas.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, registerTool } from "./_shared.js";
 import { SimproInvoice } from "../simpro/types.js";
 
 export function registerInvoiceTools(server: McpServer, ctx: ToolCtx) {
   // ---- 9. search ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_invoices",
     "Search Simpro invoices. Filters by customer (pass `customerId` or `customerName`, auto-resolved), `status` (case-insensitive name), and `dateFrom`/`dateTo` (issue date, inclusive, yyyy-mm-dd) — applied client-side after fetching. The `query` field ONLY matches the InvoiceNo, NOT the customer name.",
+    () => (
     {
       query: z.string().optional()
         .describe("Free-text search against InvoiceNo. Use customerId/customerName for customer-based filtering."),
@@ -26,8 +28,9 @@ export function registerInvoiceTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         let customerId = args.customerId;
         let resolvedNote = "";
@@ -88,11 +91,14 @@ export function registerInvoiceTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 10. get ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_invoice",
     "Get full details of a Simpro invoice by ID.",
-    { invoiceId: idSchema, raw: rawFlagSchema },
-    async ({ invoiceId, raw }) =>
+    () => (
+    { invoiceId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ invoiceId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.invoiceById(invoiceId));
         const resp = await ctx.client.get<SimproInvoice>(path);

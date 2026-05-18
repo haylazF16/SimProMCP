@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
 import { paginationQuery } from "../utils/pagination.js";
 import { idSchema, rawFlagSchema, isoDateSchema } from "../utils/schemas.js";
-import { extractList, formatList, formatRecord, safeRun, ToolCtx } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, ToolCtx, registerTool } from "./_shared.js";
 import { stripHtml } from "../utils/sanitise.js";
 
 interface SimproSchedule {
@@ -43,9 +43,11 @@ interface SimproRecurringJob {
 
 export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
   // ---- search schedules ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_schedules",
     "Search Simpro staff schedules (work blocks assigned to employees). Filter by staff and/or date range.",
+    () => (
     {
       staffId: idSchema.optional().describe("Filter to one staff member's schedule."),
       dateFrom: isoDateSchema,
@@ -53,8 +55,9 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async ({ staffId, dateFrom, dateTo, page, pageSize, raw }) =>
+    }
+    ),
+    () => async ({ staffId, dateFrom, dateTo, page, pageSize, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.schedules);
         const pg = paginationQuery(ctx.config, page, pageSize);
@@ -81,9 +84,11 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- search timesheets ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_timesheets",
     "Search Simpro timesheets (recorded labour hours and cost). Filter by employee and/or date range.",
+    () => (
     {
       employeeId: idSchema.optional().describe("Filter to one employee's timesheet entries."),
       dateFrom: isoDateSchema,
@@ -91,8 +96,9 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async ({ employeeId, dateFrom, dateTo, page, pageSize, raw }) =>
+    }
+    ),
+    () => async ({ employeeId, dateFrom, dateTo, page, pageSize, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.timesheets);
         const pg = paginationQuery(ctx.config, page, pageSize);
@@ -123,9 +129,11 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- search recurring jobs ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_recurring_jobs",
     "Search Simpro recurring job templates (PM contracts etc). Use `customerName` or `customerId` to find a specific customer's recurring jobs.",
+    () => (
     {
       customerName: z.string().optional()
         .describe("Customer name — internally resolved to customerId via simpro_search_customers."),
@@ -133,8 +141,9 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const { resolveCustomerByName } = await import("../utils/resolveCustomer.js");
         let customerId = args.customerId;
@@ -171,11 +180,14 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get recurring job ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_recurring_job",
     "Get full detail of a Simpro recurring job template by ID.",
-    { recurringJobId: idSchema, raw: rawFlagSchema },
-    async ({ recurringJobId, raw }) =>
+    () => (
+    { recurringJobId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ recurringJobId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.recurringJobById(recurringJobId));
         const resp = await ctx.client.get<SimproRecurringJob>(path);

@@ -1,3 +1,5 @@
+import { z } from "zod";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Config } from "../config.js";
 import { SimproClient } from "../simpro/client.js";
 import { SimproApiError, SimproNetworkError } from "../simpro/errors.js";
@@ -50,6 +52,69 @@ export interface McpTextResponse {
   content: { type: "text"; text: string }[];
   isError?: boolean;
   [key: string]: unknown;
+}
+
+/**
+ * Per-request cost optimisation for the stateless HTTP transport.
+ *
+ * Every JSON-RPC POST builds a fresh `McpServer` (required — the MCP SDK binds
+ * one mutable transport per Protocol instance, so a shared server would
+ * misroute concurrent users' responses). `registerAllTools` then runs on every
+ * request, and each of the ~61 `server.tool(...)` calls used to allocate a
+ * brand-new `z.object` schema tree from an inline shape literal, which the SDK
+ * then re-wraps via `objectFromShape`. That zod construction is pure and
+ * **identical for every user** — a tool's input schema never depends on the
+ * per-user SimproClient/config (only the handler closure does).
+ *
+ * `registerTool` memoises the built raw shape **once per tool name, for the
+ * process lifetime**, keyed by the (globally-unique) tool name. The shape
+ * factory runs exactly once ever; thereafter the cached shape (an object of
+ * already-constructed `z.*` schemas) is reused on every request, so the ~61
+ * zod schema trees are built one time at first use instead of per request.
+ *
+ * The legacy `server.tool(name, desc, rawShape, handler)` overload requires a
+ * raw shape (the SDK's `isZodRawShapeCompat` rejects a `z.object` instance), so
+ * the cache stores the raw shape; the SDK's cheap per-call `objectFromShape`
+ * wrap still runs but the expensive tree construction does not.
+ *
+ * SAFETY: only the user-INDEPENDENT input shape is cached. The handler — which
+ * closes over the per-request `ctx` (SimproClient + user config) — is created
+ * fresh on every call from the per-request `handlerFactory`. Nothing that
+ * captures a user's client/config is ever shared across requests.
+ */
+const schemaCache = new Map<string, z.ZodRawShape>();
+
+/** Visible for tests: how many times a shape factory was actually invoked. */
+export const __schemaBuildCounts = new Map<string, number>();
+
+export function __resetSchemaCacheForTests(): void {
+  schemaCache.clear();
+  __schemaBuildCounts.clear();
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ToolHandler = (args: any) => Promise<McpTextResponse>;
+
+export function registerTool(
+  server: McpServer,
+  name: string,
+  description: string,
+  shapeFactory: () => z.ZodRawShape,
+  handlerFactory: () => ToolHandler,
+): void {
+  let shape = schemaCache.get(name);
+  if (!shape) {
+    shape = shapeFactory();
+    schemaCache.set(name, shape);
+    __schemaBuildCounts.set(name, (__schemaBuildCounts.get(name) ?? 0) + 1);
+  }
+  // Handler is rebuilt per request — it captures the per-user ctx.
+  (server.tool as unknown as (
+    n: string,
+    d: string,
+    s: z.ZodRawShape,
+    h: ToolHandler,
+  ) => void)(name, description, shape, handlerFactory());
 }
 
 export function textResponse(text: string, isError = false): McpTextResponse {

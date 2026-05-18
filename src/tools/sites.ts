@@ -6,14 +6,16 @@ import { buildKeywordFilter } from "../utils/filter.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, addressSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 import { SimproSite } from "../simpro/types.js";
 
 export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
   // ---- 3. search ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_sites",
     "Search Simpro sites. `query` matches the site Name. To find sites BELONGING to a customer, pass `customerId` or `customerName` (auto-resolved).",
+    () => (
     {
       query: z.string().optional()
         .describe("Free-text search against the site's Name."),
@@ -23,8 +25,9 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async ({ query, customerName, customerId, page, pageSize, raw }) =>
+    }
+    ),
+    () => async ({ query, customerName, customerId, page, pageSize, raw }) =>
       safeRun(async () => {
         let effectiveCustomerId = customerId;
         let resolvedNote = "";
@@ -66,11 +69,14 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 4. get ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_site",
     "Get full details of a Simpro site by ID.",
-    { siteId: idSchema, raw: rawFlagSchema },
-    async ({ siteId, raw }) =>
+    () => (
+    { siteId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ siteId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.siteById(siteId));
         const resp = await ctx.client.get<SimproSite>(path);
@@ -79,9 +85,11 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 13. create ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_create_site",
     "Create a new site in Simpro under a customer. Requires confirm=true.",
+    () => (
     {
       confirm: confirmSchema,
       customerId: idSchema,
@@ -91,8 +99,9 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
       email: z.string().email().optional(),
       phone: z.string().optional(),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Name: args.name,
@@ -116,9 +125,11 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 19. update ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_update_site",
     "Update a Simpro site. Only provided fields are sent. Requires confirm=true.",
+    () => (
     {
       confirm: confirmSchema,
       siteId: idSchema,
@@ -128,8 +139,9 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
       email: z.string().email().optional(),
       phone: z.string().optional(),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Name: args.name,

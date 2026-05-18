@@ -6,14 +6,16 @@ import { resolveCustomerByName } from "../utils/resolveCustomer.js";
 import { applyClientFilters } from "../utils/listFilter.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, isoDateSchema } from "../utils/schemas.js";
 import { pruneEmpty, stripHtml } from "../utils/sanitise.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 import { SimproQuote } from "../simpro/types.js";
 
 export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
   // ---- 7. search ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_quotes",
     "Search Simpro quotes. Filters by customer (pass `customerId`, or `customerName` to auto-resolve), `siteId`, and `status` (case-insensitive name) — applied client-side after fetching. The `query` field is a free-text search that ONLY matches inside the quote's Description (HTML body) — DO NOT put a customer name there, it will return nothing because Simpro descriptions rarely contain the customer's name.",
+    () => (
     {
       query: z.string().optional()
         .describe("Free-text search inside the quote's Description (HTML body). Use customerId/customerName to filter by customer."),
@@ -26,8 +28,9 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         // Resolve customerName → customerId if the caller gave a name but no id.
         let customerId = args.customerId;
@@ -90,11 +93,14 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 8. get ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_quote",
     "Get full details of a Simpro quote by ID.",
-    { quoteId: idSchema, raw: rawFlagSchema },
-    async ({ quoteId, raw }) =>
+    () => (
+    { quoteId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ quoteId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.quoteById(quoteId));
         const resp = await ctx.client.get<SimproQuote>(path);
@@ -103,9 +109,11 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 15. create ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_create_quote",
     "Create a new Simpro quote. Requires confirm=true. Use simpro_list_quote_types / simpro_list_cost_centres if your tenant requires those IDs.",
+    () => (
     {
       confirm: confirmSchema,
       customerId: idSchema,
@@ -114,8 +122,9 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
       quoteType: z.union([z.number(), z.string()]).optional(),
       dueDate: isoDateSchema,
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Customer: { ID: args.customerId },
@@ -136,9 +145,11 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 21. update ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_update_quote",
     "Update a Simpro quote. Only provided fields are sent. Requires confirm=true.",
+    () => (
     {
       confirm: confirmSchema,
       quoteId: idSchema,
@@ -146,8 +157,9 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
       status: z.union([z.number(), z.string()]).optional(),
       dueDate: isoDateSchema,
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Description: args.description,
@@ -167,13 +179,16 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 24. list quote statuses (sampled) ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_list_quote_statuses",
     "List quote statuses observed across recent quotes (de-duplicated). Derived by sampling — recently-unused statuses may not appear.",
+    () => (
     {
       sampleSize: z.number().int().min(1).max(500).optional().describe("How many recent quotes to scan (default 200)."),
-    },
-    async ({ sampleSize }) =>
+    }
+    ),
+    () => async ({ sampleSize }) =>
       safeRun(async () => {
         const size = sampleSize ?? 200;
         const path = ctx.client.companyPath(ENDPOINTS.quotes);
@@ -197,13 +212,16 @@ export function registerQuoteTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 28. list quote types (sampled) ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_list_quote_types",
     "List quote types observed across recent quotes (de-duplicated).",
+    () => (
     {
       sampleSize: z.number().int().min(1).max(500).optional().describe("How many recent quotes to scan (default 200)."),
-    },
-    async ({ sampleSize }) =>
+    }
+    ),
+    () => async ({ sampleSize }) =>
       safeRun(async () => {
         const size = sampleSize ?? 200;
         const path = ctx.client.companyPath(ENDPOINTS.quotes);

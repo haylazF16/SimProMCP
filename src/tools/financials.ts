@@ -5,7 +5,7 @@ import { ENDPOINTS } from "../simpro/endpoints.js";
 import { paginationQuery } from "../utils/pagination.js";
 import { idSchema, rawFlagSchema, isoDateSchema } from "../utils/schemas.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, registerTool } from "./_shared.js";
 
 interface SimproCustomerPayment {
   ID?: number;
@@ -38,9 +38,11 @@ interface SimproRecurringInvoice {
 
 export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
   // ---- search customer payments ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_customer_payments",
     "Search Simpro customer payments (money received). Optionally filter by date range or customer.",
+    () => (
     {
       customerName: z.string().optional().describe("Customer name — auto-resolved to customerId."),
       customerId: idSchema.optional(),
@@ -49,8 +51,9 @@ export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         let customerId = args.customerId;
         let resolvedNote = "";
@@ -87,9 +90,11 @@ export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- search credit notes ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_credit_notes",
     "Search Simpro credit notes. Optionally filter by customer or stage.",
+    () => (
     {
       customerName: z.string().optional().describe("Customer name — auto-resolved."),
       customerId: idSchema.optional(),
@@ -97,8 +102,9 @@ export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         let customerId = args.customerId;
         let resolvedNote = "";
@@ -134,11 +140,14 @@ export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get credit note ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_credit_note",
     "Get full detail of a Simpro credit note by ID.",
-    { creditNoteId: idSchema, raw: rawFlagSchema },
-    async ({ creditNoteId, raw }) =>
+    () => (
+    { creditNoteId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ creditNoteId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.creditNoteById(creditNoteId));
         const resp = await ctx.client.get<SimproCreditNote>(path);
@@ -147,17 +156,20 @@ export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- search recurring invoices ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_recurring_invoices",
     "Search Simpro recurring invoice templates. Filter by customer if needed.",
+    () => (
     {
       customerName: z.string().optional(),
       customerId: idSchema.optional(),
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         let customerId = args.customerId;
         let resolvedNote = "";

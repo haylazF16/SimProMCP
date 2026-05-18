@@ -3,21 +3,24 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS, rootPath } from "../simpro/endpoints.js";
 import { idSchema, rawPayloadSchema, confirmSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
-import { formatRecord, safeRun, textResponse, ToolCtx, writeGuard, jsonBlock } from "./_shared.js";
+import { formatRecord, safeRun, textResponse, ToolCtx, writeGuard, jsonBlock, registerTool } from "./_shared.js";
 
 export function registerNoteTools(server: McpServer, ctx: ToolCtx) {
   // ---- 17. add job note ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_add_job_note",
     "Add a note to a Simpro job. Requires confirm=true.",
+    () => (
     {
       confirm: confirmSchema,
       jobId: idSchema,
       note: z.string().min(1),
       visibility: z.string().optional().describe("Optional visibility flag (e.g. 'internal', 'customer'). Tenants vary — leave blank if unsure."),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Note: args.note,
@@ -44,9 +47,11 @@ export function registerNoteTools(server: McpServer, ctx: ToolCtx) {
   //
   // For a true attachment (file binary stored inside Simpro) the user would
   // need Simpro's separate "Files API" product — ask Simpro support about it.
-  server.tool(
+  registerTool(
+    server,
     "simpro_attach_file_link_to_job",
     "Workaround for Simpro's missing attachment API: post a link to a file (stored in SharePoint, OneDrive, Dropbox, etc.) as a structured job note. The file itself stays where it is; the job in Simpro shows a clearly labelled clickable note pointing at it. Requires confirm=true. NOTE: this is NOT a true Simpro attachment — Simpro's REST API doesn't support binary file uploads. For native attachments, use the Simpro web UI directly, or contact Simpro support about their separate Files API product.",
+    () => (
     {
       confirm: confirmSchema,
       jobId: idSchema,
@@ -56,8 +61,9 @@ export function registerNoteTools(server: McpServer, ctx: ToolCtx) {
         .describe("What the file is, e.g. 'Site photo - basement leak' or 'Quote PDF from Reece'."),
       visibility: z.string().optional()
         .describe("Optional visibility flag for the note. Leave blank if unsure."),
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const noteText =
           `ATTACHMENT: ${args.description}\n` +
@@ -84,11 +90,14 @@ export function registerNoteTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 11. company info / connection test ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_company_info",
     "Test the Simpro connection and return the configured company ID plus any account info the API exposes.",
-    {},
-    async () =>
+    () => (
+    {}
+    ),
+    () => async () =>
       safeRun(async () => {
         const path = rootPath(ENDPOINTS.info);
         let info: unknown = null;

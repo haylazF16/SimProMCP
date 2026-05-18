@@ -12,7 +12,7 @@ import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
-import { extractList, formatList, formatRecord, safeRun, ToolCtx, writeGuard } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 
 interface SimproCatalog {
   ID?: number;
@@ -48,9 +48,11 @@ interface SimproStockTake {
 
 export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
   // ---- search catalog (parts) ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_catalog",
     "Search the Simpro parts catalog. Use `partNo` for an exact part-number substring match (e.g. 'BVA083'), or `query` for a free-text search of the part Name (e.g. 'gas valve'). Returns part ID, code, name, and prices. Goldman Plumbing's catalog has hundreds of thousands of items — always pass at least one filter.",
+    () => (
     {
       query: z.string().optional()
         .describe("Free-text search against the part's Name."),
@@ -59,8 +61,9 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async ({ query, partNo, page, pageSize, raw }) =>
+    }
+    ),
+    () => async ({ query, partNo, page, pageSize, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.catalogs);
         const pg = paginationQuery(ctx.config, page, pageSize);
@@ -86,11 +89,14 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get catalog item ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_catalog_item",
     "Get full detail for a Simpro catalog/parts item by ID — includes all prices, tax codes, group, UOM, manufacturer, storage location.",
-    { catalogId: idSchema, raw: rawFlagSchema },
-    async ({ catalogId, raw }) =>
+    () => (
+    { catalogId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ catalogId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.catalogById(catalogId));
         const resp = await ctx.client.get<SimproCatalog>(path);
@@ -112,9 +118,11 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
   //   1. simpro_search_catalog with the partNo first to avoid duplicates
   //   2. If no result, call this tool with at least PartNo + Name + TradePrice
   //   3. The returned catalogId can then be used in simpro_add_purchase_order_item
-  server.tool(
+  registerTool(
+    server,
     "simpro_create_catalog_item",
     "Create a new item in the Simpro parts catalog. Use this when a part on a supplier quote isn't already in Simpro's catalog. Required: name. Strongly recommended: partNo, tradePrice. Honors SIMPRO_ENABLE_WRITE_TOOLS / SIMPRO_DRY_RUN. Always search first with simpro_search_catalog to avoid creating duplicates.",
+    () => (
     {
       confirm: confirmSchema,
       name: z.string().min(1)
@@ -139,8 +147,9 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
         .describe("Free-text location e.g. 'Bin A3'."),
       notes: z.string().optional(),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Name: args.name,
@@ -178,16 +187,19 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
   // with the same PartNo, or edit in the Simpro web UI. Add this if needed.)
 
   // ---- search storage devices ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_storage_devices",
     "Search Simpro storage devices (warehouses, trucks, vehicles, vans). Use to find storage IDs needed by other tools.",
+    () => (
     {
       query: z.string().optional().describe("Free-text search against the device Name."),
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async ({ query, page, pageSize, raw }) =>
+    }
+    ),
+    () => async ({ query, page, pageSize, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.storageDevices);
         const pg = paginationQuery(ctx.config, page, pageSize);
@@ -207,11 +219,14 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get storage device ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_storage_device",
     "Get full detail of a Simpro storage device (warehouse / vehicle) by ID.",
-    { storageDeviceId: idSchema, raw: rawFlagSchema },
-    async ({ storageDeviceId, raw }) =>
+    () => (
+    { storageDeviceId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ storageDeviceId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.storageDeviceById(storageDeviceId));
         const resp = await ctx.client.get<SimproStorageDevice>(path);
@@ -223,17 +238,20 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- search stock takes ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_stock_takes",
     "Search Simpro stocktake history. Optionally filter by storage device.",
+    () => (
     {
       storageDeviceId: idSchema.optional()
         .describe("Filter to stocktakes for a specific warehouse/vehicle."),
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async ({ storageDeviceId, page, pageSize, raw }) =>
+    }
+    ),
+    () => async ({ storageDeviceId, page, pageSize, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.stockTakes);
         const pg = paginationQuery(ctx.config, page, pageSize);
@@ -257,11 +275,14 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get stock take ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_stock_take",
     "Get full detail of a Simpro stocktake by ID, including items counted and value adjustments.",
-    { stockTakeId: idSchema, raw: rawFlagSchema },
-    async ({ stockTakeId, raw }) =>
+    () => (
+    { stockTakeId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ stockTakeId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.stockTakeById(stockTakeId));
         const resp = await ctx.client.get<SimproStockTake>(path);

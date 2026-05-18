@@ -6,7 +6,7 @@ import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
 import { idSchema, rawFlagSchema } from "../utils/schemas.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, registerTool } from "./_shared.js";
 
 interface SimproContact {
   ID?: number;
@@ -29,16 +29,19 @@ interface SimproLead {
 
 export function registerContactTools(server: McpServer, ctx: ToolCtx) {
   // ---- search contacts ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_contacts",
     "Search Simpro contacts (people attached to customers/sites). Use `query` to match GivenName/FamilyName.",
+    () => (
     {
       query: z.string().optional().describe("Free-text search against contact's GivenName."),
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async ({ query, page, pageSize, raw }) =>
+    }
+    ),
+    () => async ({ query, page, pageSize, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.contacts);
         const pg = paginationQuery(ctx.config, page, pageSize);
@@ -64,11 +67,14 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get contact ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_contact",
     "Get full detail of a Simpro contact by ID.",
-    { contactId: idSchema, raw: rawFlagSchema },
-    async ({ contactId, raw }) =>
+    () => (
+    { contactId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ contactId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.contactById(contactId));
         const resp = await ctx.client.get<SimproContact>(path);
@@ -78,9 +84,11 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- search leads ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_leads",
     "Search Simpro sales leads. Optionally filter by customerName/customerId. NOTE: this tenant may have zero leads if the leads module isn't actively used.",
+    () => (
     {
       query: z.string().optional().describe("Free-text against lead Description."),
       customerName: z.string().optional().describe("Customer name (substring) — auto-resolved to customerId."),
@@ -88,8 +96,9 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         let customerId = args.customerId;
         let resolvedNote = "";
@@ -126,11 +135,14 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- get lead ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_lead",
     "Get full detail of a Simpro sales lead by ID.",
-    { leadId: idSchema, raw: rawFlagSchema },
-    async ({ leadId, raw }) =>
+    () => (
+    { leadId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ leadId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.leadById(leadId));
         const resp = await ctx.client.get<SimproLead>(path);

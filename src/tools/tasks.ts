@@ -3,13 +3,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, isoDateSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 
 export function registerTaskTools(server: McpServer, ctx: ToolCtx) {
   // ---- 16. create task ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_create_task",
     "Create a new task in Simpro. Requires confirm=true.",
+    () => (
     {
       confirm: confirmSchema,
       title: z.string().min(1),
@@ -20,8 +22,9 @@ export function registerTaskTools(server: McpServer, ctx: ToolCtx) {
       siteId: idSchema.optional(),
       jobId: idSchema.optional(),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Subject: args.title,
@@ -44,9 +47,11 @@ export function registerTaskTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 22. update task ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_update_task",
     "Update a Simpro task. Only provided fields are sent. Requires confirm=true.",
+    () => (
     {
       confirm: confirmSchema,
       taskId: idSchema,
@@ -56,8 +61,9 @@ export function registerTaskTools(server: McpServer, ctx: ToolCtx) {
       status: z.string().optional(),
       assignedToId: idSchema.optional(),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Subject: args.title,
@@ -79,11 +85,14 @@ export function registerTaskTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 25. list staff ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_list_staff",
     "List staff members in Simpro. Useful for assigning tasks/jobs.",
-    { raw: rawFlagSchema },
-    async ({ raw }) =>
+    () => (
+    { raw: rawFlagSchema }
+    ),
+    () => async ({ raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.staff);
         const resp = await ctx.client.get<unknown>(path);
@@ -96,11 +105,14 @@ export function registerTaskTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 26. list cost centres ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_list_cost_centres",
     "List cost centres in Simpro. Useful for creating jobs/quotes that require a CostCenter ID.",
-    { raw: rawFlagSchema },
-    async ({ raw }) =>
+    () => (
+    { raw: rawFlagSchema }
+    ),
+    () => async ({ raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.costCentres);
         const resp = await ctx.client.get<unknown>(path);

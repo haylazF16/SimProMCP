@@ -7,14 +7,16 @@ import { applyClientFilters } from "../utils/listFilter.js";
 import { stripHtml } from "../utils/sanitise.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, isoDateSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 import { SimproJob } from "../simpro/types.js";
 
 export function registerJobTools(server: McpServer, ctx: ToolCtx) {
   // ---- 5. search ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_search_jobs",
     "Search Simpro jobs. Filters by customer (pass `customerId`, or `customerName` to auto-resolve), `siteId`, `status` (case-insensitive name), and `dateFrom`/`dateTo` (issue date, inclusive, yyyy-mm-dd) — all applied client-side after fetching. The `query` field ONLY matches inside the job's Description (HTML body) — DO NOT put a customer name there.",
+    () => (
     {
       query: z.string().optional()
         .describe("Free-text search inside the job's Description (HTML body). Use customerId/customerName for customer-based filtering."),
@@ -29,8 +31,9 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
       page: z.number().int().min(1).optional(),
       pageSize: z.number().int().min(1).max(1000).optional(),
       raw: rawFlagSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         let customerId = args.customerId;
         let resolvedNote = "";
@@ -95,11 +98,14 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 6. get ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_get_job",
     "Get full details of a Simpro job by ID.",
-    { jobId: idSchema, raw: rawFlagSchema },
-    async ({ jobId, raw }) =>
+    () => (
+    { jobId: idSchema, raw: rawFlagSchema }
+    ),
+    () => async ({ jobId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.jobById(jobId));
         const resp = await ctx.client.get<SimproJob>(path);
@@ -108,9 +114,11 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 14. create ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_create_job",
     "Create a new job in Simpro. Requires confirm=true. Note: Simpro typically requires Customer, Site, Type and CostCenter — if your tenant requires fields not exposed here, use rawPayload (look up IDs with simpro_list_job_types, simpro_list_cost_centres, simpro_list_staff).",
+    () => (
     {
       confirm: confirmSchema,
       customerId: idSchema,
@@ -120,8 +128,9 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
       status: z.union([z.number(), z.string()]).optional().describe("Status ID — find with simpro_list_job_statuses."),
       dueDate: isoDateSchema,
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Customer: { ID: args.customerId },
@@ -158,9 +167,11 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
   );
 
   // ---- 20. update ----
-  server.tool(
+  registerTool(
+    server,
     "simpro_update_job",
     "Update a Simpro job. Only provided fields are sent. Requires confirm=true.",
+    () => (
     {
       confirm: confirmSchema,
       jobId: idSchema,
@@ -169,14 +180,15 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
       dueDate: isoDateSchema,
       assignedStaffIds: z.array(z.union([z.number(), z.string()])).optional(),
       rawPayload: rawPayloadSchema,
-    },
-    async (args) =>
+    }
+    ),
+    () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Description: args.description,
           Status: args.status !== undefined ? { ID: args.status } : undefined,
           DueDate: args.dueDate,
-          AssignedStaff: args.assignedStaffIds?.map((id) => ({ ID: id })),
+          AssignedStaff: args.assignedStaffIds?.map((id: number | string) => ({ ID: id })),
         });
         if (Object.keys(payload).length === 0) return textResponse("No fields to update.", true);
         const path = ctx.client.companyPath(ENDPOINTS.jobById(args.jobId));
@@ -194,13 +206,16 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
   // This Simpro tenant doesn't expose a /setup/.../statuses endpoint.
   // We sample recent jobs (which always include {ID, Name, Color} for Status)
   // and de-duplicate. Adjust sampleSize for completeness vs speed.
-  server.tool(
+  registerTool(
+    server,
     "simpro_list_job_statuses",
     "List job statuses observed across recent jobs (de-duplicated). Useful when updating a job's Status. Note: derived by sampling — recently-unused statuses may not appear.",
+    () => (
     {
       sampleSize: z.number().int().min(1).max(500).optional().describe("How many recent jobs to scan (default 200)."),
-    },
-    async ({ sampleSize }) =>
+    }
+    ),
+    () => async ({ sampleSize }) =>
       safeRun(async () => {
         const size = sampleSize ?? 200;
         const path = ctx.client.companyPath(ENDPOINTS.jobs);
@@ -226,13 +241,16 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
   // ---- 27. list job types (sampled) ----
   // In Simpro Premium, Type is typically a fixed string ("Service" or "Project").
   // We sample to confirm the values present in this tenant.
-  server.tool(
+  registerTool(
+    server,
     "simpro_list_job_types",
     "List job types observed across recent jobs (de-duplicated). In Simpro Premium this is typically the strings 'Service' and 'Project'.",
+    () => (
     {
       sampleSize: z.number().int().min(1).max(500).optional().describe("How many recent jobs to scan (default 200)."),
-    },
-    async ({ sampleSize }) =>
+    }
+    ),
+    () => async ({ sampleSize }) =>
       safeRun(async () => {
         const size = sampleSize ?? 200;
         const path = ctx.client.companyPath(ENDPOINTS.jobs);
