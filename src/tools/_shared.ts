@@ -2,7 +2,44 @@ import { Config } from "../config.js";
 import { SimproClient } from "../simpro/client.js";
 import { SimproApiError, SimproNetworkError } from "../simpro/errors.js";
 import { log } from "../logger.js";
-import { truncate } from "../utils/sanitise.js";
+import { truncate, stripHtml } from "../utils/sanitise.js";
+
+/**
+ * Recursively walk a record and replace large HTML description/notes/details
+ * blobs with a stripped, truncated plain-text preview. Skipped entirely when
+ * the caller requested the raw record (raw=true on read tools / write echoes).
+ * Only string fields whose KEY looks like description/notes/details, are
+ * >200 chars, and contain a `<` are touched — names/addresses are left alone.
+ */
+function sanitiseRecordForOutput(value: unknown, keyHint?: string): unknown {
+  if (typeof value === "string") {
+    if (
+      keyHint &&
+      /description|notes?|details/i.test(keyHint) &&
+      value.length > 200 &&
+      value.includes("<")
+    ) {
+      // stripHtml truncates at `max`; ask for 501 so we can detect overflow.
+      const stripped = stripHtml(value, Number.MAX_SAFE_INTEGER);
+      const clipped = stripped.slice(0, 500);
+      return stripped.length > 500
+        ? clipped + " …[truncated; pass raw=true for full]"
+        : clipped;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => sanitiseRecordForOutput(v, keyHint));
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = sanitiseRecordForOutput(v, k);
+    }
+    return out;
+  }
+  return value;
+}
 
 export interface ToolCtx {
   client: SimproClient;
@@ -110,7 +147,10 @@ export function formatList<T>(
 }
 
 export function formatRecord(label: string, record: unknown, raw: unknown, includeRaw: boolean): McpTextResponse {
-  const parts = [label, "", jsonBlock("Record", record)];
+  // includeRaw === true means the caller asked for the full untrimmed record
+  // (read tool raw=true, or a write echo). Otherwise strip giant HTML blobs.
+  const shown = includeRaw ? record : sanitiseRecordForOutput(record);
+  const parts = [label, "", jsonBlock("Record", shown)];
   if (includeRaw && raw !== record) parts.push("", jsonBlock("Raw response", raw));
   return textResponse(parts.join("\n"));
 }
