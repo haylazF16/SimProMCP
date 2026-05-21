@@ -167,13 +167,171 @@ document.querySelectorAll('form.confirm-form').forEach(function(f) {
 </body></html>`;
 }
 
+/** Map a Simpro tool name to a short human-readable action description. */
+function humanizeAction(tool: string): string {
+  const m = tool.match(/^simpro_([a-z]+)_(.+)$/);
+  if (!m) return tool;
+  const verbMap: Record<string, string> = {
+    search: "Searched",
+    get: "Viewed",
+    list: "Listed",
+    create: "Created",
+    update: "Updated",
+    add: "Added",
+    attach: "Attached",
+  };
+  const verb = verbMap[m[1]] ?? (m[1].charAt(0).toUpperCase() + m[1].slice(1));
+  const noun = m[2].replace(/_/g, " ");
+  return `${verb} ${noun}`;
+}
+
+/** Render an ISO timestamp as "5 min ago" / "2h ago" / "3d ago". */
+function relativeTime(iso: string, nowMs: number): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return iso;
+  const s = Math.max(0, Math.floor((nowMs - t) / 1000));
+  if (s < 5) return "just now";
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+/** Format ms duration as a tidy short string. */
+function fmtDuration(ms: number): string {
+  if (typeof ms !== "number" || !Number.isFinite(ms)) return "";
+  if (ms < 1000) return `${ms} ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+interface ParsedAuditRow {
+  ts: string;
+  user: string;
+  company: string;
+  tool: string;
+  ok: boolean;
+  durationMs: number;
+  errorMessage?: string;
+}
+
+function parseAuditLines(lines: string[]): ParsedAuditRow[] {
+  const out: ParsedAuditRow[] = [];
+  for (const raw of lines) {
+    try {
+      const o = JSON.parse(raw) as Partial<ParsedAuditRow>;
+      if (typeof o?.ts !== "string" || typeof o?.tool !== "string") continue;
+      out.push({
+        ts: o.ts,
+        user: typeof o.user === "string" ? o.user : "unknown",
+        company: typeof o.company === "string" ? o.company : "—",
+        tool: o.tool,
+        ok: o.ok !== false,
+        durationMs: typeof o.durationMs === "number" ? o.durationMs : 0,
+        errorMessage: typeof o.errorMessage === "string" ? o.errorMessage : undefined,
+      });
+    } catch {
+      // skip malformed lines
+    }
+  }
+  return out;
+}
+
 export function renderAuditView(adminName: string, lines: string[]): string {
-  const body = lines.length === 0 ? "<em>no entries</em>" : esc(lines.join("\n"));
+  const rows = parseAuditLines(lines).reverse(); // newest first
+  const now = Date.now();
+
+  const tbody = rows.length === 0
+    ? `<tr><td colspan="6" class="empty">No activity recorded yet.</td></tr>`
+    : rows.map((r) => {
+      const absolute = new Date(r.ts).toLocaleString();
+      const relative = relativeTime(r.ts, now);
+      const action = humanizeAction(r.tool);
+      const companyClass = r.company === "plumbing" ? "co-plumbing"
+                         : r.company === "energy" ? "co-energy" : "co-other";
+      const resultCell = r.ok
+        ? `<span class="ok" title="Success">✓</span>`
+        : `<span class="fail" title="${esc(r.errorMessage ?? "Failed")}">✗ failed</span>`;
+      const rowClass = r.ok ? "" : ' class="row-fail"';
+      // Build a single searchable string in a data attribute so the filter box
+      // can match across all columns.
+      const search = `${r.user} ${r.company} ${action} ${r.tool}`.toLowerCase();
+      return `<tr${rowClass} data-search="${esc(search)}">
+        <td title="${esc(absolute)}">${esc(relative)}</td>
+        <td><b>${esc(r.user)}</b></td>
+        <td><span class="badge ${companyClass}">${esc(r.company)}</span></td>
+        <td>${esc(action)} <span class="raw" title="${esc(r.tool)}">·</span></td>
+        <td class="num">${esc(fmtDuration(r.durationMs))}</td>
+        <td>${resultCell}</td>
+      </tr>`;
+    }).join("");
+
+  const summary = (() => {
+    if (rows.length === 0) return "";
+    const users = new Set(rows.map((r) => r.user));
+    const fails = rows.filter((r) => !r.ok).length;
+    return `<div class="summary">
+      Showing the last <b>${rows.length}</b> actions
+      from <b>${users.size}</b> ${users.size === 1 ? "person" : "people"}.
+      ${fails > 0 ? `<span class="fail-pill">${fails} failed</span>` : ""}
+    </div>`;
+  })();
+
+  // Inline filter script: hide rows whose data-search doesn't include the query.
+  const filterScript = `
+    (function(){
+      var box = document.getElementById('auditFilter');
+      if (!box) return;
+      box.addEventListener('input', function(){
+        var q = box.value.trim().toLowerCase();
+        var rows = document.querySelectorAll('tbody tr[data-search]');
+        for (var i=0;i<rows.length;i++) {
+          var r = rows[i];
+          r.style.display = (q === '' || r.getAttribute('data-search').indexOf(q) >= 0) ? '' : 'none';
+        }
+      });
+    })();
+  `;
+
   return `<!doctype html><html><head><meta charset="utf-8">
-<title>Admin · Audit</title><style>${STYLE}</style></head><body>
-<h1>Audit log · ${esc(adminName)}</h1>
+<title>Activity log — Goldman Simpro admin</title>
+<style>${STYLE}
+  .summary { background:#fff; padding:10px 14px; border-radius:4px;
+             box-shadow:0 1px 3px rgba(0,0,0,0.08); margin-bottom:12px;
+             font-size:13px; color:#555; }
+  .summary .fail-pill { background:#fdecea; color:#c0392b; padding:2px 8px;
+                        border-radius:10px; margin-left:8px; font-weight:600; }
+  .filterbox { width:100%; max-width:420px; padding:8px 10px; font-size:14px;
+               border:1px solid #ccd; border-radius:4px; margin-bottom:12px;
+               box-sizing:border-box; }
+  td.num { font-variant-numeric: tabular-nums; color:#666; }
+  .row-fail { background:#fdecea !important; }
+  .ok   { color:#1c6b1c; font-weight:700; }
+  .fail { color:#c0392b; font-weight:700; }
+  .raw  { color:#bbb; cursor:help; }
+  .badge.co-plumbing { background:#e0ecff; color:#0f4c75; }
+  .badge.co-energy   { background:#e6f7e6; color:#1c6b1c; }
+  .badge.co-other    { background:#eee;    color:#666; }
+  .legend { color:#888; font-size:11px; margin-top:6px; }
+</style></head><body>
+<h1>Activity log · ${esc(adminName)}</h1>
 ${NAV}
-<pre>${body}</pre>
+${summary}
+<input id="auditFilter" class="filterbox" type="text"
+       placeholder="Filter by name, company, or action (e.g. 'Tayfun', 'jobs', 'created')…"
+       autocomplete="off">
+<table>
+  <thead><tr>
+    <th style="width:120px;">When</th>
+    <th style="width:140px;">Who</th>
+    <th style="width:100px;">Company</th>
+    <th>What they did</th>
+    <th style="width:80px;">Time</th>
+    <th style="width:90px;">Result</th>
+  </tr></thead>
+  <tbody>${tbody}</tbody>
+</table>
+<div class="legend">Hover the date for the exact time, or the "·" after each action for the raw tool name. Showing newest first, capped at 100 entries.</div>
+<script>${filterScript}</script>
 </body></html>`;
 }
 
