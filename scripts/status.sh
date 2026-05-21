@@ -24,11 +24,14 @@ else
   line "listen:" "UNREACHABLE"; rc=1
 fi
 
-# funnel
-if command -v tailscale >/dev/null 2>&1 && tailscale funnel status 2>/dev/null | grep -q "Funnel on"; then
-  line "funnel:" "on"
+# funnel — probe the public URL directly (more reliable than `tailscale funnel
+# status` which returns nothing when this script runs as root via sudo, because
+# only the tailscale operator user sees state). Override host via FUNNEL_URL.
+FUNNEL_URL="${FUNNEL_URL:-https://goldman-ubuntu.tail6b5a4b.ts.net/healthz}"
+if curl -fsS -m 5 -o /dev/null "${FUNNEL_URL}" 2>/dev/null; then
+  line "funnel:" "on (${FUNNEL_URL})"
 else
-  line "funnel:" "OFF (or tailscale unavailable)"
+  line "funnel:" "UNREACHABLE (${FUNNEL_URL})"; rc=1
 fi
 
 # backups
@@ -46,9 +49,12 @@ done
 errs="$(journalctl -u simpro-mcp --since '24 hours ago' --no-pager 2>/dev/null | grep -cE '\[(error|fatal|srv-error)\]' || true)"
 line "errors24h:" "${errs:-0}"
 
-# systemd failed units
+# systemd failed units — count all (informational) but only fail rc when a
+# simpro-mcp unit is among them. Unrelated failed services on the box
+# (e.g. xrdp from another project) shouldn't cause our health check to alarm.
 fc="$(systemctl --failed --no-legend 2>/dev/null | wc -l)"
-line "failed:" "${fc}"
-[ "${fc}" -gt 0 ] && rc=1
+simpro_fc="$(systemctl --failed --no-legend 2>/dev/null | grep -c simpro-mcp || true)"
+line "failed:" "${fc} (simpro-mcp=${simpro_fc})"
+[ "${simpro_fc:-0}" -gt 0 ] && rc=1
 
 exit "${rc}"
