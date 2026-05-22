@@ -784,7 +784,14 @@ ${trunc}
 ${noActivity}
 <div class="kpis">${tiles}</div>
 
-<h2 style="font-size:16px;color:#0f4c75;margin:16px 0 8px;">Per user (last 30 days)</h2>
+<h2 style="font-size:16px;color:#0f4c75;margin:16px 0 8px;">Per user (${esc(
+  range.rangeKey === "today"  ? "today"
+  : range.rangeKey === "7d"     ? "last 7 days"
+  : range.rangeKey === "30d"    ? "last 30 days"
+  : range.rangeKey === "90d"    ? "last 90 days"
+  : range.rangeKey === "custom" && range.fromIso && range.toIso ? `${range.fromIso} → ${range.toIso}`
+  : "last 30 days"
+)})</h2>
 <table>
   <thead><tr>
     <th>User</th><th>Calls</th>
@@ -922,6 +929,13 @@ export function renderUserUsageView(opts: RenderUserUsageOpts): string {
        text-transform:uppercase; letter-spacing:0.04em; }
   .section-head { font-size:14px; font-weight:600; color:#374151; margin:24px 0 10px; }
   .empty { color:#999; padding:24px; text-align:center; }
+  .custom-range { display:flex; align-items:center; gap:8px; margin-left:auto;
+                  font-size:12px; color:#374151; }
+  .custom-range input[type=date] { padding:4px 6px; border:1px solid #d1d5db;
+                                    border-radius:4px; font-size:12px; }
+  .custom-range button { background:#0f4c75; color:#fff; border:none;
+                         padding:5px 12px; border-radius:4px; cursor:pointer;
+                         font-size:12px; font-weight:600; }
 </style></head><body>
 ${renderHeader(`User · ${userName}`, adminName)}
 
@@ -941,6 +955,14 @@ ${renderHeader(`User · ${userName}`, adminName)}
   ${rangeBtn("30d", "30d")}
   ${rangeBtn("90d", "90d")}
   ${rangeBtn("custom", "Custom…")}
+  ${range.rangeKey === "custom"
+    ? `<form class="custom-range" method="GET" action="/admin/usage/${encodeURIComponent(userName)}">
+         <input type="hidden" name="range" value="custom">
+         <label>From <input type="date" name="from" value="${esc(range.fromIso ?? "")}" required></label>
+         <label>To <input type="date" name="to" value="${esc(range.toIso ?? "")}" required></label>
+         <button type="submit">Load</button>
+       </form>`
+    : ""}
 </div>
 
 <div class="kpis">${tilesArr}</div>
