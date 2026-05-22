@@ -25,6 +25,37 @@ function esc(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+/**
+ * Render a small inline SVG bar chart. Pure function: input data + labels,
+ * output HTML string. Used by the usage dashboard for the time-pattern
+ * charts. Bars are 16 px wide with 2 px gaps; height scales so the tallest
+ * bar reaches `maxHeight`. Empty / all-zero input renders as flat bars.
+ */
+export function renderBarChart(
+  values: number[],
+  opts: { labelEvery: number; axisLabels: string[]; maxHeight?: number },
+): string {
+  const max = values.reduce((m, v) => (v > m ? v : m), 0);
+  const barW = 16;
+  const gap = 2;
+  const maxH = opts.maxHeight ?? 50;
+  const width = values.length * (barW + gap) - gap;
+  const totalH = maxH + 18; // room for the x-axis labels under the bars
+  const bars = values.map((v, i) => {
+    const h = max === 0 ? 1 : Math.max(1, Math.round((v / max) * maxH));
+    const x = i * (barW + gap);
+    const y = maxH - h;
+    return `<g><rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="#0f4c75"><title>${v}</title></rect></g>`;
+  }).join("");
+  const labels = values.map((_, i) => {
+    if (opts.labelEvery <= 0 || i % opts.labelEvery !== 0) return "";
+    const x = i * (barW + gap) + barW / 2;
+    const label = opts.axisLabels[i] ?? "";
+    return `<text x="${x}" y="${maxH + 14}" text-anchor="middle" font-size="10" fill="#888">${label}</text>`;
+  }).join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalH}" viewBox="0 0 ${width} ${totalH}" role="img">${bars}${labels}</svg>`;
+}
+
 export function renderLoginPage(opts: { errorMessage?: string }): string {
   const err = opts.errorMessage
     ? `<div class="err">${esc(opts.errorMessage)}</div>`
