@@ -3,6 +3,7 @@
 // the handler logic stays scannable.
 
 import type { TokenRecord } from "./tokens.js";
+import type { UsageStats } from "./usage.js";
 import { createHash } from "node:crypto";
 
 // Admin pages permit inline scripts because we use a small inline `onsubmit`
@@ -592,5 +593,116 @@ details summary { cursor:pointer; color:#666; font-size:12px; }
   <summary>Advanced: copy smcp_ token (only needed for legacy / debug)</summary>
   <div class="token">${esc(smcpToken)}</div>
 </details>
+</body></html>`;
+}
+
+// ── Usage dashboard ──────────────────────────────────────────────────────────
+
+function fmtRelativeFromMs(ms: number | null, now: number): string {
+  if (ms === null) return "never";
+  const s = Math.max(0, Math.floor((now - ms) / 1000));
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+}
+
+function tile(label: string, value: string, sub?: string): string {
+  return `<div class="kpi">
+    <div class="kpi-label">${esc(label)}</div>
+    <div class="kpi-value">${esc(value)}</div>
+    ${sub ? `<div class="kpi-sub">${esc(sub)}</div>` : ""}
+  </div>`;
+}
+
+const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i));
+const DOM_LABELS = Array.from({ length: 31 }, (_, i) => String(i + 1));
+const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+export function renderUsageView(adminName: string, stats: UsageStats): string {
+  const now = Date.now();
+  const failPct = (stats.failRate7d * 100).toFixed(1) + "%";
+  const localRl = stats.localRateLimitHitsToday < 0
+    ? "—" : String(stats.localRateLimitHitsToday);
+  const peakSub = stats.peakReqPerSecLastHour >= 7 ? "near 10/s ceiling"
+                  : stats.peakReqPerSecLastHour >= 3 ? "moderate"
+                  : "plenty of headroom";
+
+  const trunc = stats.truncated
+    ? `<div class="trunc">Older entries truncated to keep the page snappy. Counts for the 30/90-day buckets may slightly under-report.</div>`
+    : "";
+
+  const tiles = [
+    tile("Today",              String(stats.totals.today)),
+    tile("Last 7 days",        String(stats.totals.last7d)),
+    tile("Last 30 days",       String(stats.totals.last30d)),
+    tile("Active users today", String(stats.activeUsersToday)),
+    tile("Fail rate (7d)",     failPct),
+    tile("Peak req/sec (1h)",  String(stats.peakReqPerSecLastHour), peakSub),
+    tile("429s from Simpro",   String(stats.rateLimitedTodayBySimpro), "today"),
+    tile("Local rate-limit hits", localRl, "today"),
+  ].join("");
+
+  const rows = stats.perUser.length === 0
+    ? `<tr><td colspan="7" class="empty">No users enrolled yet.</td></tr>`
+    : stats.perUser.map((u) => {
+        const fpStr = u.last7d === 0 ? "—" : (u.failRate7d * 100).toFixed(1) + "%";
+        return `<tr>
+          <td><b>${esc(u.name)}</b></td>
+          <td class="num">${u.today}</td>
+          <td class="num">${u.last7d}</td>
+          <td class="num">${u.last30d}</td>
+          <td>${esc(fmtRelativeFromMs(u.lastSeenMs, now))}</td>
+          <td class="num">${fpStr}</td>
+          <td>${u.topTool ? esc(u.topTool) : "—"}</td>
+        </tr>`;
+      }).join("");
+
+  return `<!doctype html><html><head><meta charset="utf-8">
+<title>Usage — Goldman Simpro admin</title>
+<style>${STYLE}
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
+          gap:10px; margin-bottom:16px; }
+  .kpi { background:#fff; padding:14px; border-radius:6px;
+         box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  .kpi-label { font-size:11px; color:#666; text-transform:uppercase;
+               letter-spacing:0.05em; }
+  .kpi-value { font-size:24px; font-weight:700; color:#0f4c75; margin-top:2px; }
+  .kpi-sub   { font-size:11px; color:#888; margin-top:2px; }
+  .charts { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+            gap:16px; margin-top:16px; }
+  .chart { background:#fff; padding:14px; border-radius:6px;
+           box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  .chart h3 { font-size:13px; color:#0f4c75; margin:0 0 8px; }
+  .chart svg { display:block; max-width:100%; height:auto; }
+  td.num { font-variant-numeric: tabular-nums; text-align:right; }
+  .trunc { background:#fff3cd; color:#8a6d3b; padding:8px 12px;
+           border-radius:4px; margin-bottom:12px; font-size:13px; }
+</style></head><body>
+<h1>Usage · ${esc(adminName)}</h1>
+${NAV}
+${trunc}
+<div class="kpis">${tiles}</div>
+
+<h2 style="font-size:16px;color:#0f4c75;margin:16px 0 8px;">Per user (last 30 days)</h2>
+<table>
+  <thead><tr>
+    <th>User</th><th>Today</th><th>7d</th><th>30d</th>
+    <th>Last seen</th><th>Fail rate</th><th>Top tool</th>
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+
+<div class="charts">
+  <div class="chart"><h3>Hour of day (last 30 days)</h3>
+    ${renderBarChart(stats.hourOfDay, { labelEvery: 4, axisLabels: HOUR_LABELS })}
+  </div>
+  <div class="chart"><h3>Day of month (last 90 days)</h3>
+    ${renderBarChart(stats.dayOfMonth, { labelEvery: 5, axisLabels: DOM_LABELS })}
+  </div>
+  <div class="chart"><h3>Day of week (last 30 days)</h3>
+    ${renderBarChart(stats.dayOfWeek, { labelEvery: 1, axisLabels: DOW_LABELS })}
+  </div>
+</div>
 </body></html>`;
 }
