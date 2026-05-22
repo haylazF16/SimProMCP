@@ -27,6 +27,32 @@ function esc(s: string): string {
 }
 
 /**
+ * Top header bar rendered on every admin page. The logo is a clickable
+ * brand link to /admin (the user list). The asset is served from
+ * /admin/static/logo.svg by the static route mounted in admin.ts and
+ * gated by requireAdmin.
+ */
+export function renderHeader(pageTitle: string, adminName: string): string {
+  return `<div class="header">
+    <a href="/admin" class="brand" aria-label="Home">
+      <img src="/admin/static/logo.svg" alt="Goldman Plumbing" height="32">
+    </a>
+    <div class="page-title">${esc(pageTitle)}</div>
+    <div class="header-spacer"></div>
+    <nav class="nav-links">
+      <a href="/admin">Users</a>
+      <a href="/admin/audit">Audit log</a>
+      <a href="/admin/usage">Usage</a>
+      <a href="/admin/users/new">Create user</a>
+    </nav>
+    <form method="POST" action="/admin/logout" class="logout-form">
+      <button type="submit">Logout</button>
+    </form>
+    <div class="header-user">${esc(adminName)}</div>
+  </div>`;
+}
+
+/**
  * Render a small inline SVG bar chart. Pure function: input data + labels,
  * output HTML string. Used by the usage dashboard for the time-pattern
  * charts. Bars are 16 px wide with 2 px gaps; height scales so the tallest
@@ -136,6 +162,24 @@ const STYLE = `
   form.create input { width:300px; padding:6px; border:1px solid #ccc; border-radius:3px; }
   form.create button { background:#0f4c75; color:#fff; border:none;
                        padding:6px 14px; border-radius:3px; cursor:pointer; }
+
+  .header { display:flex; align-items:center; gap:16px;
+            background:#fff; padding:10px 20px; border-radius:8px;
+            box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:20px; }
+  .header .brand { display:flex; align-items:center; text-decoration:none; }
+  .header .brand img { display:block; }
+  .header .page-title { font-size:15px; font-weight:600; color:#0f4c75;
+                        padding-left:16px; border-left:1px solid #e5e7eb; margin-left:4px; }
+  .header .header-spacer { flex:1; }
+  .header .nav-links a { color:#374151; text-decoration:none; font-weight:500;
+                         font-size:13px; padding:6px 10px; border-radius:4px; }
+  .header .nav-links a:hover { background:#f3f4f6; color:#0f4c75; }
+  .header .logout-form { display:inline; margin:0; }
+  .header .logout-form button { background:#f9fafb; border:1px solid #e5e7eb;
+                                color:#374151; padding:6px 12px; border-radius:4px;
+                                font-size:13px; cursor:pointer; font-family:inherit; }
+  .header .logout-form button:hover { background:#fef2f2; border-color:#fecaca; color:#c0392b; }
+  .header .header-user { font-size:12px; color:#6b7280; padding-left:8px; }
 `;
 
 const NAV = `<div class="nav">

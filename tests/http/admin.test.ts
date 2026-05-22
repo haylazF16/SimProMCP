@@ -191,3 +191,28 @@ describe("POST /admin/login", () => {
     expect(cookieLine).toContain("Max-Age=86400");
   });
 });
+
+describe("GET /admin/static/:file", () => {
+  it("returns 401 without auth", async () => {
+    fs.writeFileSync(tmpFile, JSON.stringify({ tokens: {} }));
+    const res = await request(buildFullAdminApp()).get("/admin/static/logo.svg");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 200 + svg for an admin requesting the wordmark", async () => {
+    writeAdminToken("smcp_admin");
+    const res = await request(buildFullAdminApp())
+      .get("/admin/static/logo.svg")
+      .set("Authorization", "Bearer smcp_admin");
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/svg/);
+  });
+
+  it("returns 404 for a non-allowlisted file", async () => {
+    writeAdminToken("smcp_admin");
+    const res = await request(buildFullAdminApp())
+      .get("/admin/static/secret.env")
+      .set("Authorization", "Bearer smcp_admin");
+    expect(res.status).toBe(404);
+  });
+});

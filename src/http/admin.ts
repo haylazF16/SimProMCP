@@ -8,6 +8,8 @@
 // record has isAdmin=true.
 
 import { Router, type Request, type Response, type NextFunction, type RequestHandler } from "express";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Config } from "../config.js";
 import { log } from "../logger.js";
 import { authenticate, loadTokens, removeUser, updateUser, type TokenRecord } from "./tokens.js";
@@ -133,6 +135,18 @@ function findUserByKeyHash(tokensFile: string, hash: string): { smcpToken: strin
 
 export function attachAdminRoutes(router: Router, config: Config): void {
   const admin = requireAdmin(config.SIMPRO_TOKENS_FILE);
+
+  // GET /admin/static/:file — admin-gated static assets (logo, etc.).
+  router.get("/admin/static/:file", admin, (req, res) => {
+    const allowed = new Set(["logo.svg", "logo.png"]);
+    const name = req.params.file;
+    if (!allowed.has(name)) {
+      res.status(404).type("text/plain").send("Not found");
+      return;
+    }
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    res.sendFile(path.join(here, "static", name));
+  });
 
   // GET /admin/login — show the login form
   // Note: NOT gated by `admin` middleware (would cause a redirect loop).
