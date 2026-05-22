@@ -209,3 +209,16 @@ export function computeUsageStats(
     truncated: opts.truncated === true,
   };
 }
+
+/**
+ * Filter raw audit lines (JSONL) to keep only entries whose `user` field
+ * matches the given name. Used by the per-user drill-down route.
+ */
+export function filterLinesByUser(lines: string[], userName: string): string[] {
+  const out: string[] = [];
+  for (const raw of lines) {
+    const r = parseLine(raw);
+    if (r && r.user === userName) out.push(raw);
+  }
+  return out;
+}

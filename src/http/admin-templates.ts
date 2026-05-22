@@ -718,7 +718,7 @@ export function renderUsageView(
     : stats.perUser.map((u) => {
         const fpStr = u.calls === 0 ? "—" : (u.failRate * 100).toFixed(1) + "%";
         return `<tr>
-          <td><b>${esc(u.name)}</b></td>
+          <td><a href="/admin/usage/${encodeURIComponent(u.name)}" class="user-link"><b>${esc(u.name)}</b></a></td>
           <td class="num">${u.calls}</td>
           <td>${esc(fmtRelativeFromMs(u.lastSeenMs, now))}</td>
           <td class="num">${fpStr}</td>
@@ -804,5 +804,166 @@ ${noActivity}
     ${renderBarChart(stats.dayOfWeek, { labelEvery: 1, axisLabels: DOW_LABELS })}
   </div>
 </div>
+</body></html>`;
+}
+
+// ── Per-user drill-down ───────────────────────────────────────────────────────
+
+export interface RenderUserUsageOpts {
+  adminName: string;
+  userName: string;
+  userMeta: TokenRecord | null;
+  stats: UsageStats;
+  now: number;
+  range: UsageViewRange;
+  /** Last N (≤50) audit lines for this user within the range, newest first. */
+  recentLines: string[];
+}
+
+export function renderUserUsageView(opts: RenderUserUsageOpts): string {
+  const { adminName, userName, userMeta, stats, now, range, recentLines } = opts;
+  const enrolled = userMeta !== null;
+  const companies = userMeta?.companyAccess?.join(", ") ?? "—";
+  const lastSeen = stats.perUser[0]?.lastSeenMs ?? null;
+
+  // Top tools — derive from the (already user-scoped) audit lines.
+  const toolCounts = new Map<string, number>();
+  for (const raw of recentLines) {
+    try {
+      const o = JSON.parse(raw) as { tool?: string };
+      if (typeof o.tool === "string") toolCounts.set(o.tool, (toolCounts.get(o.tool) ?? 0) + 1);
+    } catch { /* ignore */ }
+  }
+  const topTools = [...toolCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  const rangeBtn = (key: string, label: string) =>
+    `<a href="/admin/usage/${encodeURIComponent(userName)}?range=${key}" class="r-btn ${range.rangeKey === key ? "on" : ""}">${label}</a>`;
+
+  const u0 = stats.perUser[0];
+  const tilesArr = [
+    tile("Calls (in range)", String(u0?.calls ?? 0)),
+    tile("Fail rate (in range)",
+      !u0 || u0.calls === 0 ? "—" : ((u0.failRate ?? 0) * 100).toFixed(1) + "%"),
+    tile("Top tool", u0?.topTool ?? "—"),
+  ].join("");
+
+  const toolsList = topTools.length === 0
+    ? `<p class="empty">No tool calls in the picked range.</p>`
+    : `<ol class="top-tools">` + topTools.map(([t, n]) =>
+        `<li><span class="tool-name">${esc(t)}</span> <span class="tool-count">${n}</span></li>`).join("") + `</ol>`;
+
+  const activityRows = recentLines.length === 0
+    ? `<tr><td colspan="3" class="empty">No activity in the picked range.</td></tr>`
+    : recentLines.map((raw) => {
+        try {
+          const o = JSON.parse(raw) as { ts: string; tool: string; ok: boolean; details?: string; durationMs: number };
+          const tsDate = new Date(o.ts);
+          return `<tr>
+            <td>${esc(tsDate.toLocaleString())}</td>
+            <td>${esc(o.tool)}${o.details ? ` <span class="detail">${esc(o.details)}</span>` : ""}</td>
+            <td>${o.ok ? `<span class="ok">✓</span>` : `<span class="fail">✗</span>`} <span class="num">${o.durationMs} ms</span></td>
+          </tr>`;
+        } catch {
+          return "";
+        }
+      }).join("");
+
+  return `<!doctype html><html><head><meta charset="utf-8">
+<title>${esc(userName)} — Usage</title>
+<style>${STYLE}
+  body { background:#f9fafb; }
+  .id-strip { background:#fff; padding:14px 18px; border-radius:8px;
+              border:1px solid #e5e7eb; box-shadow:0 1px 3px rgba(0,0,0,0.04);
+              display:flex; align-items:center; gap:14px; margin-bottom:16px; }
+  .id-strip .name { font-size:20px; font-weight:700; color:#0f4c75; }
+  .id-strip .meta { color:#6b7280; font-size:13px; }
+  .top-tools { padding-left:0; list-style:none; margin:0;
+               background:#fff; border:1px solid #e5e7eb; border-radius:8px;
+               box-shadow:0 1px 3px rgba(0,0,0,0.04); padding:8px 0; }
+  .top-tools li { display:flex; justify-content:space-between; padding:8px 14px;
+                  border-bottom:1px solid #f3f4f6; font-size:13px; }
+  .top-tools li:last-child { border-bottom:none; }
+  .tool-name { color:#374151; }
+  .tool-count { color:#6b7280; font-variant-numeric: tabular-nums; }
+  .back-link { display:inline-block; margin-top:24px; color:#0f4c75;
+               text-decoration:none; font-weight:600; font-size:13px; }
+  .back-link:hover { text-decoration:underline; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+          gap:12px; margin-bottom:20px; }
+  .kpi { background:#fff; padding:18px; border-radius:8px;
+         border:1px solid #e5e7eb; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
+  .kpi-label { font-size:11px; color:#6b7280; text-transform:uppercase; letter-spacing:0.06em; font-weight:600; }
+  .kpi-value { font-size:32px; font-weight:700; color:#0f4c75; margin-top:6px; line-height:1; }
+  .range-picker { display:flex; align-items:center; gap:6px; margin-bottom:16px;
+                  background:#fff; padding:8px 12px; border-radius:8px;
+                  box-shadow:0 1px 3px rgba(0,0,0,0.04); flex-wrap:wrap; }
+  .r-btn { color:#6b7280; padding:6px 12px; border-radius:6px;
+           text-decoration:none; font-size:13px; font-weight:500;
+           border:1px solid transparent; }
+  .r-btn:hover { background:#f3f4f6; color:#0f4c75; }
+  .r-btn.on { background:#eff6ff; color:#0f4c75; border-color:#bfdbfe; }
+  .charts { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+            gap:16px; margin-top:20px; }
+  .chart { background:#fff; padding:18px; border-radius:8px;
+           border:1px solid #e5e7eb; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
+  .chart h3 { font-size:13px; color:#374151; margin:0 0 12px; font-weight:600; }
+  .chart svg { display:block; max-width:100%; height:auto; }
+  .detail { color:#0f4c75; font-weight:600; }
+  .ok { color:#10b981; font-weight:700; }
+  .fail { color:#ef4444; font-weight:700; }
+  td.num, .num { font-variant-numeric: tabular-nums; }
+  table { background:#fff; border-radius:8px; overflow:hidden;
+          border:1px solid #e5e7eb; box-shadow:none; }
+  th { background:#f9fafb; color:#374151; font-size:11px;
+       text-transform:uppercase; letter-spacing:0.04em; }
+  .section-head { font-size:14px; font-weight:600; color:#374151; margin:24px 0 10px; }
+  .empty { color:#999; padding:24px; text-align:center; }
+</style></head><body>
+${renderHeader(`User · ${userName}`, adminName)}
+
+<div class="id-strip">
+  <div>
+    <div class="name">${esc(userName)}</div>
+    <div class="meta">
+      ${enrolled ? `Companies: <b>${esc(companies)}</b>` : `<i>not currently enrolled</i>`}
+      ${lastSeen !== null ? ` · Last seen ${esc(fmtRelativeFromMs(lastSeen, now))}` : ""}
+    </div>
+  </div>
+</div>
+
+<div class="range-picker">
+  ${rangeBtn("today", "Today")}
+  ${rangeBtn("7d", "7d")}
+  ${rangeBtn("30d", "30d")}
+  ${rangeBtn("90d", "90d")}
+  ${rangeBtn("custom", "Custom…")}
+</div>
+
+<div class="kpis">${tilesArr}</div>
+
+<div class="section-head">Top tools (in range)</div>
+${toolsList}
+
+<div class="charts">
+  <div class="chart"><h3>Hour of day</h3>
+    ${renderBarChart(stats.hourOfDay, { labelEvery: 4, axisLabels: HOUR_LABELS })}
+  </div>
+  <div class="chart"><h3>Day of month</h3>
+    ${renderBarChart(stats.dayOfMonth, { labelEvery: 5, axisLabels: DOM_LABELS })}
+  </div>
+  <div class="chart"><h3>Day of week</h3>
+    ${renderBarChart(stats.dayOfWeek, { labelEvery: 1, axisLabels: DOW_LABELS })}
+  </div>
+</div>
+
+<div class="section-head">Activity (last 50 in range)</div>
+<table>
+  <thead><tr><th>When</th><th>What</th><th>Result</th></tr></thead>
+  <tbody>${activityRows}</tbody>
+</table>
+
+<a class="back-link" href="/admin/usage">← Back to overview</a>
 </body></html>`;
 }

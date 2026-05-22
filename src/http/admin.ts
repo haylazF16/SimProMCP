@@ -25,6 +25,7 @@ import {
   renderLoginPage,
 } from "./admin-templates.js";
 import { handleUsageGet } from "./usageRoute.js";
+import { handleUserUsageGet } from "./usageUserRoute.js";
 
 /** Default lines shown when no date range is requested (tail of audit.log). */
 const AUDIT_DEFAULT_LIMIT = 100;
@@ -266,6 +267,9 @@ export function attachAdminRoutes(router: Router, config: Config): void {
 
   // GET /admin/usage — read-only analytics dashboard.
   router.get("/admin/usage", admin, handleUsageGet(config));
+
+  // GET /admin/usage/:userName — per-user drill-down.
+  router.get("/admin/usage/:userName", admin, handleUserUsageGet(config));
 
   // GET /admin/users/new — manual create form
   router.get("/admin/users/new", admin, (_req, res) => {

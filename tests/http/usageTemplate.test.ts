@@ -76,7 +76,8 @@ describe("renderUsageView", () => {
     expect(html).toContain("Sarah");
     expect(html).toContain("simpro_search_jobs");
     // Sarah has no lastSeen / topTool -> em dash placeholder.
-    expect(html.split("Sarah")[1]).toContain("—");
+    // Split on the closing anchor tag after Sarah's name link to get the row content.
+    expect(html.split("Sarah")[2]).toContain("—");
   });
 
   it("renders localRateLimitHitsToday == -1 as an em dash", () => {
