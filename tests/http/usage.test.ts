@@ -209,3 +209,54 @@ describe("computeUsageStats — rateLimitedTodayBySimpro", () => {
     expect(s.rateLimitedTodayBySimpro).toBe(0);
   });
 });
+
+describe("computeUsageStats — perUser", () => {
+  it("aggregates per-user counts, lastSeen, failRate, and topTool, sorted by last30d desc", () => {
+    const now = FIXED_NOW;
+    const mk = (user: string, ageMs: number, tool: string, ok = true) =>
+      JSON.stringify({
+        ts: new Date(now - ageMs).toISOString(),
+        user, company: "plumbing", tool, ok, durationMs: 1,
+      });
+    const lines = [
+      mk("Tayfun", 60_000, "simpro_search_jobs"),
+      mk("Tayfun", 2 * 60 * 60 * 1000, "simpro_search_jobs"),
+      mk("Tayfun", 3 * ONE_DAY_MS, "simpro_get_job"),
+      mk("Tayfun", 5 * ONE_DAY_MS, "simpro_search_jobs", false),
+      mk("Sarah",  60_000, "simpro_get_invoice"),
+    ];
+    const s = computeUsageStats(lines, ["Tayfun", "Sarah", "Jamie"], { now });
+
+    expect(s.perUser.map((u) => u.name)).toEqual(["Tayfun", "Sarah", "Jamie"]);
+
+    const t = s.perUser[0];
+    expect(t.today).toBe(2);
+    expect(t.last7d).toBe(4);
+    expect(t.last30d).toBe(4);
+    expect(t.lastSeenMs).toBe(now - 60_000);
+    expect(t.failRate7d).toBeCloseTo(0.25, 3); // 1 fail of 4
+    expect(t.topTool).toBe("simpro_search_jobs"); // appears 3 times
+
+    const sarah = s.perUser[1];
+    expect(sarah.today).toBe(1);
+    expect(sarah.topTool).toBe("simpro_get_invoice");
+
+    const jamie = s.perUser[2]; // enrolled but no activity
+    expect(jamie.today).toBe(0);
+    expect(jamie.lastSeenMs).toBeNull();
+    expect(jamie.topTool).toBeNull();
+  });
+
+  it("includes a user who appears in lines but isn't in knownUsers (e.g. revoked)", () => {
+    const now = FIXED_NOW;
+    const line = JSON.stringify({
+      ts: new Date(now - 60_000).toISOString(),
+      user: "Ghost", company: "plumbing", tool: "simpro_get_job",
+      ok: true, durationMs: 1,
+    });
+    const s = computeUsageStats([line], ["Tayfun"], { now });
+    const names = s.perUser.map((u) => u.name);
+    expect(names).toContain("Ghost");
+    expect(names).toContain("Tayfun");
+  });
+});

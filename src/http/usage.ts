@@ -127,15 +127,65 @@ export function computeUsageStats(
     }
   }
 
-  const perUser: PerUserStats[] = knownUsers.map((name) => ({
-    name,
-    today: 0,
-    last7d: 0,
-    last30d: 0,
-    lastSeenMs: null,
-    failRate7d: 0,
-    topTool: null,
-  }));
+  // Build a working map keyed by user name; start with known users so they
+  // appear even with zero activity, then layer in any users we see in lines.
+  interface UserAgg {
+    today: number;
+    last7d: number;
+    last30d: number;
+    lastSeenMs: number | null;
+    fails7d: number;
+    total7d: number;
+    toolCounts: Map<string, number>;
+  }
+  const agg = new Map<string, UserAgg>();
+  for (const name of knownUsers) {
+    agg.set(name, {
+      today: 0, last7d: 0, last30d: 0,
+      lastSeenMs: null, fails7d: 0, total7d: 0,
+      toolCounts: new Map(),
+    });
+  }
+  for (const r of rows) {
+    let u = agg.get(r.user);
+    if (!u) {
+      u = { today: 0, last7d: 0, last30d: 0,
+            lastSeenMs: null, fails7d: 0, total7d: 0,
+            toolCounts: new Map() };
+      agg.set(r.user, u);
+    }
+    if (r.ts > cutToday) u.today++;
+    if (r.ts > cut7d) {
+      u.last7d++;
+      u.total7d++;
+      if (!r.ok) u.fails7d++;
+    }
+    if (r.ts > cut30d) u.last30d++;
+    if (u.lastSeenMs === null || r.ts > u.lastSeenMs) u.lastSeenMs = r.ts;
+    u.toolCounts.set(r.tool, (u.toolCounts.get(r.tool) ?? 0) + 1);
+  }
+  const perUser: PerUserStats[] = [];
+  for (const [name, u] of agg) {
+    let topTool: string | null = null;
+    let topCount = 0;
+    for (const [tool, n] of u.toolCounts) {
+      if (n > topCount) { topCount = n; topTool = tool; }
+    }
+    perUser.push({
+      name,
+      today: u.today,
+      last7d: u.last7d,
+      last30d: u.last30d,
+      lastSeenMs: u.lastSeenMs,
+      failRate7d: u.total7d === 0 ? 0 : Math.round((u.fails7d / u.total7d) * 1000) / 1000,
+      topTool,
+    });
+  }
+  // Sort by last30d desc, then by name asc (stable within ties).
+  perUser.sort((a, b) => {
+    if (b.last30d !== a.last30d) return b.last30d - a.last30d;
+    return a.name.localeCompare(b.name);
+  });
 
   return {
     totals: { today, last7d, last30d },
