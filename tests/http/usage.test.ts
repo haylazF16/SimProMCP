@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { computeUsageStats } from "../../src/http/usage.js";
 
 const FIXED_NOW = Date.UTC(2026, 4, 22, 12, 0, 0); // 2026-05-22T12:00:00Z
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 describe("computeUsageStats — empty input", () => {
   it("returns zeroed stats and empty arrays when given no lines and no users", () => {
@@ -35,5 +36,57 @@ describe("computeUsageStats — empty input", () => {
       expect(u.failRate7d).toBe(0);
       expect(u.topTool).toBeNull();
     }
+  });
+});
+
+describe("computeUsageStats — totals", () => {
+  it("counts entries into rolling 24h / 7d / 30d windows", () => {
+    const now = FIXED_NOW;
+    const mk = (ageMs: number, ok = true) =>
+      JSON.stringify({
+        ts: new Date(now - ageMs).toISOString(),
+        user: "Tayfun", company: "plumbing", tool: "simpro_search_jobs",
+        ok, durationMs: 100,
+      });
+    const lines = [
+      mk(60 * 60 * 1000),               // 1h ago -> today + 7d + 30d
+      mk(5 * 24 * 60 * 60 * 1000),      // 5d ago -> 7d + 30d
+      mk(25 * 24 * 60 * 60 * 1000),     // 25d ago -> 30d
+      mk(35 * 24 * 60 * 60 * 1000),     // 35d ago -> none
+    ];
+    const s = computeUsageStats(lines, ["Tayfun"], { now });
+    expect(s.totals.today).toBe(1);
+    expect(s.totals.last7d).toBe(2);
+    expect(s.totals.last30d).toBe(3);
+  });
+
+  it("treats exactly-24h-old as outside today, and 23h59m59s as inside", () => {
+    const now = FIXED_NOW;
+    const mk = (ageMs: number) =>
+      JSON.stringify({
+        ts: new Date(now - ageMs).toISOString(),
+        user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+        ok: true, durationMs: 50,
+      });
+    const inWindow = mk(24 * 60 * 60 * 1000 - 1000);    // 23h59m59s
+    const onCutoff = mk(24 * 60 * 60 * 1000);           // exactly 24h
+    const outside = mk(24 * 60 * 60 * 1000 + 1000);     // 24h + 1s
+    const s = computeUsageStats([inWindow, onCutoff, outside], ["Tayfun"], { now });
+    expect(s.totals.today).toBe(1); // only the 23h59m59s entry
+  });
+
+  it("ignores malformed lines instead of throwing", () => {
+    const lines = [
+      "not json at all",
+      JSON.stringify({ ts: "garbage" }),
+      JSON.stringify({ user: "x" }), // missing ts and tool
+      JSON.stringify({
+        ts: new Date(FIXED_NOW - 1000).toISOString(),
+        user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+        ok: true, durationMs: 1,
+      }),
+    ];
+    const s = computeUsageStats(lines, [], { now: FIXED_NOW });
+    expect(s.totals.today).toBe(1);
   });
 });

@@ -39,11 +39,61 @@ export interface ComputeOpts {
   truncated?: boolean;
 }
 
+interface Row {
+  ts: number;
+  user: string;
+  company: string;
+  tool: string;
+  ok: boolean;
+  durationMs: number;
+  errorMessage?: string;
+}
+
+function parseLine(raw: string): Row | null {
+  try {
+    const o = JSON.parse(raw) as Partial<Row> & { ts?: string };
+    if (typeof o.ts !== "string" || typeof o.tool !== "string") return null;
+    const ts = Date.parse(o.ts);
+    if (!Number.isFinite(ts)) return null;
+    return {
+      ts,
+      user: typeof o.user === "string" ? o.user : "unknown",
+      company: typeof o.company === "string" ? o.company : "—",
+      tool: o.tool,
+      ok: o.ok !== false,
+      durationMs: typeof o.durationMs === "number" ? o.durationMs : 0,
+      errorMessage: typeof o.errorMessage === "string" ? o.errorMessage : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+const ONE_DAY = 24 * 60 * 60 * 1000;
+
 export function computeUsageStats(
-  _lines: string[],
+  lines: string[],
   knownUsers: string[],
   opts: ComputeOpts = {},
 ): UsageStats {
+  const now = opts.now ?? Date.now();
+  const cutToday = now - ONE_DAY;
+  const cut7d    = now - 7 * ONE_DAY;
+  const cut30d   = now - 30 * ONE_DAY;
+
+  const rows: Row[] = [];
+  for (const raw of lines) {
+    const r = parseLine(raw);
+    if (r) rows.push(r);
+  }
+
+  let today = 0, last7d = 0, last30d = 0;
+  for (const r of rows) {
+    if (r.ts > cutToday)  today++;
+    if (r.ts > cut7d)     last7d++;
+    if (r.ts > cut30d)    last30d++;
+  }
+
   const perUser: PerUserStats[] = knownUsers.map((name) => ({
     name,
     today: 0,
@@ -53,8 +103,9 @@ export function computeUsageStats(
     failRate7d: 0,
     topTool: null,
   }));
+
   return {
-    totals: { today: 0, last7d: 0, last30d: 0 },
+    totals: { today, last7d, last30d },
     activeUsersToday: 0,
     failRate7d: 0,
     peakReqPerSecLastHour: 0,
