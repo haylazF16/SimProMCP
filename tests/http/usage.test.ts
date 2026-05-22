@@ -90,3 +90,47 @@ describe("computeUsageStats — totals", () => {
     expect(s.totals.today).toBe(1);
   });
 });
+
+describe("computeUsageStats — activeUsersToday + failRate7d", () => {
+  it("counts distinct users with >=1 call in today, ignores users with only older calls", () => {
+    const now = FIXED_NOW;
+    const mk = (user: string, ageMs: number) =>
+      JSON.stringify({
+        ts: new Date(now - ageMs).toISOString(),
+        user, company: "plumbing", tool: "simpro_search_jobs",
+        ok: true, durationMs: 1,
+      });
+    const lines = [
+      mk("Tayfun", 60 * 60 * 1000),       // 1h ago
+      mk("Sarah",  2 * 60 * 60 * 1000),   // 2h ago
+      mk("Tayfun", 3 * 60 * 60 * 1000),   // 3h ago (still today; duplicate user)
+      mk("Jamie",  2 * ONE_DAY_MS),       // 2d ago (not today)
+    ];
+    const s = computeUsageStats(lines, [], { now });
+    expect(s.activeUsersToday).toBe(2); // Tayfun + Sarah
+  });
+
+  it("computes failRate7d as failures / total within last 7 days, 3 dp", () => {
+    const now = FIXED_NOW;
+    const mk = (ageMs: number, ok: boolean) =>
+      JSON.stringify({
+        ts: new Date(now - ageMs).toISOString(),
+        user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+        ok, durationMs: 1,
+      });
+    const lines = [
+      mk(60 * 60 * 1000, true),
+      mk(60 * 60 * 1000, true),
+      mk(60 * 60 * 1000, true),
+      mk(60 * 60 * 1000, false),  // 1 of 4 -> 0.25
+      mk(40 * ONE_DAY_MS, false), // outside 7d -> ignored
+    ];
+    const s = computeUsageStats(lines, [], { now });
+    expect(s.failRate7d).toBeCloseTo(0.25, 3);
+  });
+
+  it("failRate7d is 0 when there are no calls in the last 7 days", () => {
+    const s = computeUsageStats([], [], { now: FIXED_NOW });
+    expect(s.failRate7d).toBe(0);
+  });
+});

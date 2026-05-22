@@ -94,6 +94,17 @@ export function computeUsageStats(
     if (r.ts > cut30d)    last30d++;
   }
 
+  const todayUsers = new Set<string>();
+  let fails7d = 0, total7d = 0;
+  for (const r of rows) {
+    if (r.ts > cutToday) todayUsers.add(r.user);
+    if (r.ts > cut7d) {
+      total7d++;
+      if (!r.ok) fails7d++;
+    }
+  }
+  const failRate7d = total7d === 0 ? 0 : Math.round((fails7d / total7d) * 1000) / 1000;
+
   const perUser: PerUserStats[] = knownUsers.map((name) => ({
     name,
     today: 0,
@@ -106,8 +117,8 @@ export function computeUsageStats(
 
   return {
     totals: { today, last7d, last30d },
-    activeUsersToday: 0,
-    failRate7d: 0,
+    activeUsersToday: todayUsers.size,
+    failRate7d,
     peakReqPerSecLastHour: 0,
     rateLimitedTodayBySimpro: 0,
     localRateLimitHitsToday: -1,
