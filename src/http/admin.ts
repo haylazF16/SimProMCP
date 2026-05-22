@@ -22,6 +22,7 @@ import {
   renderManualCreateResult,
   renderLoginPage,
 } from "./admin-templates.js";
+import { handleUsageGet } from "./usageRoute.js";
 
 /** Default lines shown when no date range is requested (tail of audit.log). */
 const AUDIT_DEFAULT_LIMIT = 100;
@@ -248,6 +249,9 @@ export function attachAdminRoutes(router: Router, config: Config): void {
       renderAuditView(adminName, lines, { mode: "tail", tailLimit: AUDIT_DEFAULT_LIMIT }),
     );
   });
+
+  // GET /admin/usage — read-only analytics dashboard.
+  router.get("/admin/usage", admin, handleUsageGet(config));
 
   // GET /admin/users/new — manual create form
   router.get("/admin/users/new", admin, (_req, res) => {
