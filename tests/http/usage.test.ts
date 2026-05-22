@@ -134,3 +134,47 @@ describe("computeUsageStats — activeUsersToday + failRate7d", () => {
     expect(s.failRate7d).toBe(0);
   });
 });
+
+describe("computeUsageStats — peakReqPerSecLastHour", () => {
+  it("returns the max calls-per-second over the last hour", () => {
+    const now = FIXED_NOW;
+    // 8 calls all in the same second, 5 minutes ago
+    const base = now - 5 * 60 * 1000;
+    const lines: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      lines.push(JSON.stringify({
+        ts: new Date(base + i * 10).toISOString(), // within same second
+        user: "Tayfun", company: "plumbing", tool: "simpro_search_jobs",
+        ok: true, durationMs: 1,
+      }));
+    }
+    const s = computeUsageStats(lines, [], { now });
+    expect(s.peakReqPerSecLastHour).toBe(8);
+  });
+
+  it("returns 1 when 8 calls are spread across 8 different seconds", () => {
+    const now = FIXED_NOW;
+    const base = now - 10 * 60 * 1000;
+    const lines = [];
+    for (let i = 0; i < 8; i++) {
+      lines.push(JSON.stringify({
+        ts: new Date(base + i * 1000).toISOString(), // one per second
+        user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+        ok: true, durationMs: 1,
+      }));
+    }
+    const s = computeUsageStats(lines, [], { now });
+    expect(s.peakReqPerSecLastHour).toBe(1);
+  });
+
+  it("ignores calls older than the last hour", () => {
+    const now = FIXED_NOW;
+    const lines = [JSON.stringify({
+      ts: new Date(now - 2 * 60 * 60 * 1000).toISOString(), // 2h ago
+      user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+      ok: true, durationMs: 1,
+    })];
+    const s = computeUsageStats(lines, [], { now });
+    expect(s.peakReqPerSecLastHour).toBe(0);
+  });
+});

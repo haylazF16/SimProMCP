@@ -70,6 +70,7 @@ function parseLine(raw: string): Row | null {
 }
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
+const ONE_HOUR = 60 * 60 * 1000;
 
 export function computeUsageStats(
   lines: string[],
@@ -105,6 +106,20 @@ export function computeUsageStats(
   }
   const failRate7d = total7d === 0 ? 0 : Math.round((fails7d / total7d) * 1000) / 1000;
 
+  // Peak requests-per-second observed in the last hour. Bucket each row by
+  // floor(ts / 1000); the max bucket count is the peak.
+  const cutHour = now - ONE_HOUR;
+  const buckets = new Map<number, number>();
+  for (const r of rows) {
+    if (r.ts <= cutHour) continue;
+    const sec = Math.floor(r.ts / 1000);
+    buckets.set(sec, (buckets.get(sec) ?? 0) + 1);
+  }
+  let peakReqPerSecLastHour = 0;
+  for (const v of buckets.values()) {
+    if (v > peakReqPerSecLastHour) peakReqPerSecLastHour = v;
+  }
+
   const perUser: PerUserStats[] = knownUsers.map((name) => ({
     name,
     today: 0,
@@ -119,7 +134,7 @@ export function computeUsageStats(
     totals: { today, last7d, last30d },
     activeUsersToday: todayUsers.size,
     failRate7d,
-    peakReqPerSecLastHour: 0,
+    peakReqPerSecLastHour,
     rateLimitedTodayBySimpro: 0,
     localRateLimitHitsToday: -1,
     perUser,
