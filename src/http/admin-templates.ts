@@ -72,7 +72,7 @@ export function renderBarChart(
     const h = max === 0 ? 1 : Math.max(1, Math.round((v / max) * maxH));
     const x = i * (barW + gap);
     const y = maxH - h;
-    return `<g><rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="#0f4c75"><title>${v}</title></rect></g>`;
+    return `<g><rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="#1b5e9c"><title>${v}</title></rect></g>`;
   }).join("");
   const labels = values.map((_, i) => {
     if (opts.labelEvery <= 0 || i % opts.labelEvery !== 0) return "";
@@ -643,11 +643,12 @@ function fmtRelativeFromMs(ms: number | null, now: number): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-function tile(label: string, value: string, sub?: string): string {
+function tile(label: string, value: string, sub?: string, healthClass?: "healthy" | "warning" | "critical"): string {
+  const subClass = healthClass ? `kpi-sub ${healthClass}` : "kpi-sub";
   return `<div class="kpi">
     <div class="kpi-label">${esc(label)}</div>
     <div class="kpi-value">${esc(value)}</div>
-    ${sub ? `<div class="kpi-sub">${esc(sub)}</div>` : ""}
+    ${sub ? `<div class="${subClass}">${esc(sub)}</div>` : ""}
   </div>`;
 }
 
@@ -696,14 +697,18 @@ export function renderUsageView(
     ${customForm}
   </div>`;
 
+  const failHealth = stats.failRate7d === 0 ? "healthy" : stats.failRate7d < 0.05 ? "warning" : "critical";
+  const peakHealth = stats.peakReqPerSecLastHour < 3 ? "healthy" : stats.peakReqPerSecLastHour < 7 ? "warning" : "critical";
+  const rl429Health = stats.rateLimitedTodayBySimpro === 0 ? "healthy" : "warning";
+
   const tiles = [
     tile("Today",              String(stats.totals.today)),
     tile("Last 7 days",        String(stats.totals.last7d)),
     tile("Last 30 days",       String(stats.totals.last30d)),
     tile("Active users today", String(stats.activeUsersToday)),
-    tile("Fail rate (7d)",     failPct),
-    tile("Peak req/sec (1h)",  String(stats.peakReqPerSecLastHour), peakSub),
-    tile("429s from Simpro",   String(stats.rateLimitedTodayBySimpro), "today"),
+    tile("Fail rate (7d)",     failPct, undefined, failHealth),
+    tile("Peak req/sec (1h)",  String(stats.peakReqPerSecLastHour), peakSub, peakHealth),
+    tile("429s from Simpro",   String(stats.rateLimitedTodayBySimpro), "today", rl429Health),
     tile("Local rate-limit hits", localRl, "today"),
   ].join("");
 
@@ -723,23 +728,37 @@ export function renderUsageView(
   return `<!doctype html><html><head><meta charset="utf-8">
 <title>Usage — Goldman Simpro admin</title>
 <style>${STYLE}
-  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));
-          gap:10px; margin-bottom:16px; }
-  .kpi { background:#fff; padding:14px; border-radius:6px;
-         box-shadow:0 1px 3px rgba(0,0,0,0.08); }
-  .kpi-label { font-size:11px; color:#666; text-transform:uppercase;
-               letter-spacing:0.05em; }
-  .kpi-value { font-size:24px; font-weight:700; color:#0f4c75; margin-top:2px; }
-  .kpi-sub   { font-size:11px; color:#888; margin-top:2px; }
+
+  body { background:#f9fafb; }
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+          gap:12px; margin-bottom:20px; }
+  .kpi { background:#fff; padding:18px; border-radius:8px;
+         border:1px solid #e5e7eb;
+         box-shadow:0 1px 3px rgba(0,0,0,0.04);
+         transition: box-shadow 0.15s ease; }
+  .kpi:hover { box-shadow:0 4px 12px rgba(0,0,0,0.06); }
+  .kpi-label { font-size:11px; color:#6b7280; text-transform:uppercase;
+               letter-spacing:0.06em; font-weight:600; }
+  .kpi-value { font-size:32px; font-weight:700; color:#0f4c75; margin-top:6px; line-height:1; }
+  .kpi-sub   { font-size:11px; color:#9ca3af; margin-top:6px; }
+  .kpi-sub.healthy { color:#10b981; font-weight:600; }
+  .kpi-sub.warning { color:#f59e0b; font-weight:600; }
+  .kpi-sub.critical { color:#ef4444; font-weight:600; }
   .charts { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
-            gap:16px; margin-top:16px; }
-  .chart { background:#fff; padding:14px; border-radius:6px;
-           box-shadow:0 1px 3px rgba(0,0,0,0.08); }
-  .chart h3 { font-size:13px; color:#0f4c75; margin:0 0 8px; }
+            gap:16px; margin-top:20px; }
+  .chart { background:#fff; padding:18px; border-radius:8px;
+           border:1px solid #e5e7eb;
+           box-shadow:0 1px 3px rgba(0,0,0,0.04); }
+  .chart h3 { font-size:13px; color:#374151; margin:0 0 12px;
+              font-weight:600; }
   .chart svg { display:block; max-width:100%; height:auto; }
+  table { background:#fff; border-radius:8px; overflow:hidden;
+          border:1px solid #e5e7eb; box-shadow:none; }
+  th { background:#f9fafb; color:#374151; font-size:11px;
+       text-transform:uppercase; letter-spacing:0.04em; }
   td.num { font-variant-numeric: tabular-nums; text-align:right; }
-  .trunc { background:#fff3cd; color:#8a6d3b; padding:8px 12px;
-           border-radius:4px; margin-bottom:12px; font-size:13px; }
+  .trunc { background:#fff3cd; color:#8a6d3b; padding:10px 14px;
+           border-radius:6px; margin-bottom:14px; font-size:13px; }
   .range-picker { display:flex; align-items:center; gap:6px; margin-bottom:16px;
                   background:#fff; padding:8px 12px; border-radius:8px;
                   box-shadow:0 1px 3px rgba(0,0,0,0.04); flex-wrap:wrap; }
@@ -755,6 +774,8 @@ export function renderUsageView(
   .custom-range button { background:#0f4c75; color:#fff; border:none;
                          padding:5px 12px; border-radius:4px; cursor:pointer;
                          font-size:12px; font-weight:600; }
+  .user-link { color:#0f4c75; text-decoration:none; }
+  .user-link:hover { text-decoration:underline; }
 </style></head><body>
 ${renderHeader("Usage", adminName)}
 ${rangePicker}
