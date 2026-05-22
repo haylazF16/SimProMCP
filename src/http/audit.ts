@@ -30,6 +30,13 @@ export interface AuditEntry {
   ok: boolean;
   durationMs: number;
   errorMessage?: string;
+  /**
+   * Short, human-safe summary of what the call was about — e.g. "#1234" for
+   * a get-by-id, or `q="goldman" customerName="..."` for a search. Built by
+   * summarizeArgs() in server.ts from a known-safe arg allowlist; freeform
+   * descriptions / notes / HTML bodies are NEVER captured here.
+   */
+  details?: string;
 }
 
 export function recordAudit(filePath: string, e: AuditEntry): void {

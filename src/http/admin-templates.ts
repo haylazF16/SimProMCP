@@ -212,6 +212,7 @@ interface ParsedAuditRow {
   ok: boolean;
   durationMs: number;
   errorMessage?: string;
+  details?: string;
 }
 
 function parseAuditLines(lines: string[]): ParsedAuditRow[] {
@@ -228,6 +229,7 @@ function parseAuditLines(lines: string[]): ParsedAuditRow[] {
         ok: o.ok !== false,
         durationMs: typeof o.durationMs === "number" ? o.durationMs : 0,
         errorMessage: typeof o.errorMessage === "string" ? o.errorMessage : undefined,
+        details: typeof o.details === "string" ? o.details : undefined,
       });
     } catch {
       // skip malformed lines
@@ -236,9 +238,24 @@ function parseAuditLines(lines: string[]): ParsedAuditRow[] {
   return out;
 }
 
+/** Categorize a tool name into a coarse "kind" used by the result filter. */
+function actionKind(tool: string): "view" | "search" | "list" | "create" | "update" | "other" {
+  if (/^simpro_search_/.test(tool)) return "search";
+  if (/^simpro_get_/.test(tool)) return "view";
+  if (/^simpro_list_/.test(tool)) return "list";
+  if (/^simpro_create_/.test(tool)) return "create";
+  if (/^simpro_update_/.test(tool)) return "update";
+  if (/^simpro_(add|attach)_/.test(tool)) return "create";
+  return "other";
+}
+
 export function renderAuditView(adminName: string, lines: string[]): string {
   const rows = parseAuditLines(lines).reverse(); // newest first
   const now = Date.now();
+
+  // Build sorted lists for the filter dropdowns.
+  const uniqUsers = Array.from(new Set(rows.map((r) => r.user))).sort();
+  const uniqCompanies = Array.from(new Set(rows.map((r) => r.company))).sort();
 
   const tbody = rows.length === 0
     ? `<tr><td colspan="6" class="empty">No activity recorded yet.</td></tr>`
@@ -246,20 +263,33 @@ export function renderAuditView(adminName: string, lines: string[]): string {
       const absolute = new Date(r.ts).toLocaleString();
       const relative = relativeTime(r.ts, now);
       const action = humanizeAction(r.tool);
+      const kind = actionKind(r.tool);
       const companyClass = r.company === "plumbing" ? "co-plumbing"
                          : r.company === "energy" ? "co-energy" : "co-other";
       const resultCell = r.ok
         ? `<span class="ok" title="Success">✓</span>`
         : `<span class="fail" title="${esc(r.errorMessage ?? "Failed")}">✗ failed</span>`;
       const rowClass = r.ok ? "" : ' class="row-fail"';
-      // Build a single searchable string in a data attribute so the filter box
-      // can match across all columns.
-      const search = `${r.user} ${r.company} ${action} ${r.tool}`.toLowerCase();
-      return `<tr${rowClass} data-search="${esc(search)}">
-        <td title="${esc(absolute)}">${esc(relative)}</td>
+      // Combined searchable haystack for the free-text box.
+      const haystack = `${r.user} ${r.company} ${action} ${r.tool} ${r.details ?? ""}`.toLowerCase();
+      const detailsHtml = r.details
+        ? `<div class="details">${esc(r.details)}</div>`
+        : "";
+      // data-ts is the epoch ms so the date-range filter can compare numerically.
+      const tsEpoch = Date.parse(r.ts) || 0;
+      return `<tr${rowClass} data-search="${esc(haystack)}"
+                  data-user="${esc(r.user)}"
+                  data-company="${esc(r.company)}"
+                  data-result="${r.ok ? "ok" : "fail"}"
+                  data-kind="${kind}"
+                  data-ts="${tsEpoch}">
+        <td class="when-cell" data-rel="${esc(relative)}" data-abs="${esc(absolute)}" title="Click to toggle exact time">${esc(relative)}</td>
         <td><b>${esc(r.user)}</b></td>
         <td><span class="badge ${companyClass}">${esc(r.company)}</span></td>
-        <td>${esc(action)} <span class="raw" title="${esc(r.tool)}">·</span></td>
+        <td>
+          <div class="action">${esc(action)} <span class="raw" title="raw tool: ${esc(r.tool)}">·</span></div>
+          ${detailsHtml}
+        </td>
         <td class="num">${esc(fmtDuration(r.durationMs))}</td>
         <td>${resultCell}</td>
       </tr>`;
@@ -270,25 +300,85 @@ export function renderAuditView(adminName: string, lines: string[]): string {
     const users = new Set(rows.map((r) => r.user));
     const fails = rows.filter((r) => !r.ok).length;
     return `<div class="summary">
-      Showing the last <b>${rows.length}</b> actions
+      Showing the last <b id="visCount">${rows.length}</b> actions
       from <b>${users.size}</b> ${users.size === 1 ? "person" : "people"}.
       ${fails > 0 ? `<span class="fail-pill">${fails} failed</span>` : ""}
     </div>`;
   })();
 
-  // Inline filter script: hide rows whose data-search doesn't include the query.
+  const userOptions = ['<option value="">All users</option>']
+    .concat(uniqUsers.map((u) => `<option value="${esc(u)}">${esc(u)}</option>`))
+    .join("");
+  const companyOptions = ['<option value="">All companies</option>']
+    .concat(uniqCompanies.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`))
+    .join("");
+
+  // Inline filter + click-to-toggle script. All client-side; no deps.
   const filterScript = `
     (function(){
-      var box = document.getElementById('auditFilter');
-      if (!box) return;
-      box.addEventListener('input', function(){
-        var q = box.value.trim().toLowerCase();
-        var rows = document.querySelectorAll('tbody tr[data-search]');
+      var $ = function(id){ return document.getElementById(id); };
+      var fUser    = $('fUser');
+      var fCompany = $('fCompany');
+      var fResult  = $('fResult');
+      var fKind    = $('fKind');
+      var fRange   = $('fRange');
+      var fText    = $('fText');
+      var visCount = $('visCount');
+      var rows = document.querySelectorAll('tbody tr[data-search]');
+
+      function rangeCutoff() {
+        var v = fRange.value;
+        if (v === '24h') return Date.now() - 24*3600*1000;
+        if (v === '7d')  return Date.now() - 7*24*3600*1000;
+        if (v === '30d') return Date.now() - 30*24*3600*1000;
+        return 0;
+      }
+
+      function apply() {
+        var u = fUser.value;
+        var c = fCompany.value;
+        var r = fResult.value;
+        var k = fKind.value;
+        var t = fText.value.trim().toLowerCase();
+        var cutoff = rangeCutoff();
+        var shown = 0;
         for (var i=0;i<rows.length;i++) {
-          var r = rows[i];
-          r.style.display = (q === '' || r.getAttribute('data-search').indexOf(q) >= 0) ? '' : 'none';
+          var row = rows[i];
+          var ok = true;
+          if (u && row.getAttribute('data-user') !== u) ok = false;
+          if (ok && c && row.getAttribute('data-company') !== c) ok = false;
+          if (ok && r && row.getAttribute('data-result') !== r) ok = false;
+          if (ok && k && row.getAttribute('data-kind') !== k) ok = false;
+          if (ok && t && row.getAttribute('data-search').indexOf(t) < 0) ok = false;
+          if (ok && cutoff > 0) {
+            var ts = parseInt(row.getAttribute('data-ts'), 10);
+            if (!ts || ts < cutoff) ok = false;
+          }
+          row.style.display = ok ? '' : 'none';
+          if (ok) shown++;
         }
+        if (visCount) visCount.textContent = String(shown);
+      }
+      [fUser, fCompany, fResult, fKind, fRange].forEach(function(el){
+        if (el) el.addEventListener('change', apply);
       });
+      if (fText) fText.addEventListener('input', apply);
+
+      // Click any "When" cell to toggle relative <-> absolute time.
+      var whens = document.querySelectorAll('.when-cell');
+      for (var j=0;j<whens.length;j++) {
+        whens[j].addEventListener('click', function(ev){
+          var el = ev.currentTarget;
+          var showingAbs = el.getAttribute('data-showing') === 'abs';
+          if (showingAbs) {
+            el.textContent = el.getAttribute('data-rel');
+            el.setAttribute('data-showing', 'rel');
+          } else {
+            el.textContent = el.getAttribute('data-abs');
+            el.setAttribute('data-showing', 'abs');
+          }
+        });
+      }
     })();
   `;
 
@@ -300,14 +390,28 @@ export function renderAuditView(adminName: string, lines: string[]): string {
              font-size:13px; color:#555; }
   .summary .fail-pill { background:#fdecea; color:#c0392b; padding:2px 8px;
                         border-radius:10px; margin-left:8px; font-weight:600; }
-  .filterbox { width:100%; max-width:420px; padding:8px 10px; font-size:14px;
-               border:1px solid #ccd; border-radius:4px; margin-bottom:12px;
-               box-sizing:border-box; }
+  .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+             margin-bottom:12px; background:#fff; padding:10px 12px;
+             border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
+  .filters select, .filters input[type=text] {
+    padding:6px 8px; font-size:13px; border:1px solid #ccd; border-radius:4px;
+    background:#fff; color:#222;
+  }
+  .filters input[type=text] { flex:1; min-width:200px; }
+  .filters label { font-size:12px; color:#666; margin-right:4px; }
+  .filters button.clear { background:#eee; border:1px solid #ccd; padding:6px 10px;
+                          border-radius:4px; cursor:pointer; font-size:12px; }
+  .filters button.clear:hover { background:#e0e0e0; }
+  td.when-cell { cursor:pointer; user-select:none; }
+  td.when-cell:hover { background:#eaf2fb; }
   td.num { font-variant-numeric: tabular-nums; color:#666; }
   .row-fail { background:#fdecea !important; }
   .ok   { color:#1c6b1c; font-weight:700; }
   .fail { color:#c0392b; font-weight:700; }
   .raw  { color:#bbb; cursor:help; }
+  .action { font-weight:500; }
+  .details { color:#666; font-size:12px; margin-top:2px;
+             font-family: ui-monospace, "SF Mono", Menlo, monospace; }
   .badge.co-plumbing { background:#e0ecff; color:#0f4c75; }
   .badge.co-energy   { background:#e6f7e6; color:#1c6b1c; }
   .badge.co-other    { background:#eee;    color:#666; }
@@ -316,12 +420,39 @@ export function renderAuditView(adminName: string, lines: string[]): string {
 <h1>Activity log · ${esc(adminName)}</h1>
 ${NAV}
 ${summary}
-<input id="auditFilter" class="filterbox" type="text"
-       placeholder="Filter by name, company, or action (e.g. 'Tayfun', 'jobs', 'created')…"
-       autocomplete="off">
+<div class="filters">
+  <label>User</label>
+  <select id="fUser">${userOptions}</select>
+  <label>Company</label>
+  <select id="fCompany">${companyOptions}</select>
+  <label>Result</label>
+  <select id="fResult">
+    <option value="">All</option>
+    <option value="ok">Successful</option>
+    <option value="fail">Failed</option>
+  </select>
+  <label>Action</label>
+  <select id="fKind">
+    <option value="">All</option>
+    <option value="search">Search</option>
+    <option value="view">View</option>
+    <option value="list">List</option>
+    <option value="create">Create / Add</option>
+    <option value="update">Update</option>
+  </select>
+  <label>Time</label>
+  <select id="fRange">
+    <option value="">All</option>
+    <option value="24h">Last 24 hours</option>
+    <option value="7d">Last 7 days</option>
+    <option value="30d">Last 30 days</option>
+  </select>
+  <input id="fText" type="text" placeholder="Search any text (e.g. '#1234', 'goldman')…" autocomplete="off">
+  <button class="clear" type="button" onclick="document.querySelectorAll('.filters select').forEach(function(s){s.value='';});document.getElementById('fText').value='';document.getElementById('fText').dispatchEvent(new Event('input'));">Clear</button>
+</div>
 <table>
   <thead><tr>
-    <th style="width:120px;">When</th>
+    <th style="width:130px;">When</th>
     <th style="width:140px;">Who</th>
     <th style="width:100px;">Company</th>
     <th>What they did</th>
@@ -330,7 +461,7 @@ ${summary}
   </tr></thead>
   <tbody>${tbody}</tbody>
 </table>
-<div class="legend">Hover the date for the exact time, or the "·" after each action for the raw tool name. Showing newest first, capped at 100 entries.</div>
+<div class="legend">Click a date to see the exact time (click again to switch back). Hover the "·" after each action for the raw tool name. Showing newest first, capped at 100 entries.</div>
 <script>${filterScript}</script>
 </body></html>`;
 }

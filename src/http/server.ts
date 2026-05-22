@@ -63,16 +63,74 @@ function configForUser(global: Config, record: TokenRecord, company: CompanyKey)
 }
 
 /**
- * Best-effort extraction of the tool name from a JSON-RPC body for audit
- * logging. Body may be a single object or a batch array.
+ * Best-effort extraction of the tool name AND arguments from a JSON-RPC body
+ * for audit logging. Body may be a single object or a batch array.
  */
-function describeRpcMethod(body: unknown): { method: string; toolName?: string } {
-  const one = (b: { method?: string; params?: { name?: string } }) => ({
+function describeRpcMethod(body: unknown): {
+  method: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+} {
+  const one = (b: { method?: string; params?: { name?: string; arguments?: unknown } }) => ({
     method: typeof b?.method === "string" ? b.method : "unknown",
     toolName: typeof b?.params?.name === "string" ? b.params.name : undefined,
+    args:
+      b?.params?.arguments && typeof b.params.arguments === "object"
+        ? (b.params.arguments as Record<string, unknown>)
+        : undefined,
   });
   if (Array.isArray(body)) return one(body[0] ?? {});
-  return one((body as { method?: string; params?: { name?: string } }) ?? {});
+  return one((body as { method?: string; params?: { name?: string; arguments?: unknown } }) ?? {});
+}
+
+/**
+ * Produce a short, human-safe details string for the audit log — e.g. "#1234"
+ * for a get-by-id, or `q="goldman" customerName="..."` for a search.
+ *
+ * Safety contract: we ONLY read a fixed allowlist of arg keys (IDs, short
+ * search terms, common filters, and the `name` arg of create_* tools). We
+ * NEVER capture description, notes, address, email, phone, or any freeform
+ * body content. Every value is truncated to a short cap.
+ */
+function summarizeArgs(toolName: string, args: unknown): string | undefined {
+  if (!args || typeof args !== "object") return undefined;
+  const a = args as Record<string, unknown>;
+  const parts: string[] = [];
+
+  const safeScalar = (v: unknown, max = 40): string | null => {
+    if (typeof v === "number" && Number.isFinite(v)) return String(v);
+    if (typeof v === "string" && v.trim()) {
+      return v.trim().replace(/[\r\n\t]/g, " ").slice(0, max);
+    }
+    return null;
+  };
+
+  // Primary ID: any key named `id` or matching `<noun>Id` (jobId, customerId…).
+  for (const key of Object.keys(a)) {
+    if (key === "id" || /^[a-z][a-zA-Z]*Id$/.test(key)) {
+      const v = safeScalar(a[key], 40);
+      if (v) { parts.push(`#${v}`); break; }
+    }
+  }
+
+  // Search keyword — try common names.
+  const q = safeScalar(a.query, 40) ?? safeScalar(a.keyword, 40) ?? safeScalar(a.q, 40);
+  if (q) parts.push(`q="${q}"`);
+
+  // Common search/filter args worth showing (allowlist only).
+  for (const k of ["customerName", "status", "dateFrom", "dateTo"] as const) {
+    const v = safeScalar(a[k], 40);
+    if (v) parts.push(`${k}=${v}`);
+  }
+
+  // For create_* tools, the `name` arg is meaningful audit context.
+  if (toolName.includes("_create_")) {
+    const name = safeScalar(a.name, 40);
+    if (name) parts.push(`name="${name}"`);
+  }
+
+  if (parts.length === 0) return undefined;
+  return parts.join(" ").slice(0, 200);
 }
 
 export async function runHttp({ config }: RunHttpOptions): Promise<void> {
@@ -336,6 +394,7 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
           tool: rpc.toolName,
           ok: true,
           durationMs: Date.now() - t0,
+          details: summarizeArgs(rpc.toolName, rpc.args),
         });
       }
     } catch (err) {
@@ -349,6 +408,7 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
           ok: false,
           durationMs: Date.now() - t0,
           errorMessage: msg.slice(0, 200),
+          details: summarizeArgs(rpc.toolName, rpc.args),
         });
       }
       if (!res.headersSent) {
