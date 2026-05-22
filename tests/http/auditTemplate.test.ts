@@ -26,4 +26,10 @@ describe("renderAuditView — inline detail", () => {
     // Bare action, no extra span — sanity check the muted detail class isn't rendered empty.
     expect(html).not.toMatch(/<span class="detail">\s*<\/span>/);
   });
+
+  it("escapes HTML-meta characters in details", () => {
+    const html = renderAuditView("Admin", baseLines({ details: "Job <b>done</b> & paid" }));
+    expect(html).toContain("Job &lt;b&gt;done&lt;/b&gt; &amp; paid");
+    expect(html).not.toContain("<b>done</b>");
+  });
 });
