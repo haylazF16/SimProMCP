@@ -5,7 +5,7 @@ import type { Request, Response } from "express";
 import type { Config } from "../config.js";
 import { loadTokens, type TokenRecord } from "./tokens.js";
 import { readRange } from "./auditReader.js";
-import { computeUsageStats, filterLinesByUser } from "./usage.js";
+import { computeUsageStats, filterLinesByUser, filterLinesAfter } from "./usage.js";
 import { ADMIN_HEADERS, renderUserUsageView } from "./admin-templates.js";
 import { parseRange } from "./usageRoute.js";
 
@@ -43,19 +43,16 @@ export function handleUserUsageGet(config: Config) {
     });
 
     // Filter to the picked range before passing to the template.
-    // `recentLines` shows the user's most recent activity WITHIN range.
+    // `inRangeLines` is the full set used for top-tools aggregation;
+    // `recentLines` is the capped slice shown in the activity feed.
     const cutRange = now - range.rangeMs;
-    const inRangeLines = userLines.filter((raw) => {
-      const m = raw.match(/"ts":"([^"]+)"/);
-      if (!m) return false;
-      const t = Date.parse(m[1]);
-      return Number.isFinite(t) && t > cutRange;
-    });
+    const inRangeLines = filterLinesAfter(userLines, cutRange);
 
     const adminName = (res.locals as { admin: { name: string } }).admin.name;
     for (const [k, v] of Object.entries(ADMIN_HEADERS)) res.set(k, v);
     res.type("text/html").send(renderUserUsageView({
       adminName, userName, userMeta, stats, now, range,
+      inRangeLines,
       recentLines: inRangeLines.slice(-50).reverse(),
     }));
   };

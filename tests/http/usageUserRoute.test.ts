@@ -112,4 +112,47 @@ describe("GET /admin/usage/:userName", () => {
     expect(res.text).toContain("#recent");
     expect(res.text).not.toContain("#old");
   });
+
+  it("aggregates top tools across ALL in-range calls, not just the last 50", async () => {
+    fs.writeFileSync(tokensFile, JSON.stringify({
+      tokens: {
+        "smcp_admin": {
+          name: "Tayfun", simproApiKey: "k1admin-12345",
+          companyAccess: ["plumbing"], isAdmin: true,
+        },
+      },
+    }));
+    // Seed 60 lines all in range. 55 are simpro_get_invoice (more frequent),
+    // 5 are simpro_search_jobs (more recent). Without the fix, top-tool
+    // would be search_jobs (because the 50-cap drops the older invoices).
+    const now = Date.now();
+    const lines: string[] = [];
+    for (let i = 0; i < 55; i++) {
+      lines.push(JSON.stringify({
+        ts: new Date(now - (60 - i) * 60_000).toISOString(),
+        user: "Tayfun", company: "plumbing",
+        tool: "simpro_get_invoice", ok: true, durationMs: 1,
+      }));
+    }
+    for (let i = 0; i < 5; i++) {
+      lines.push(JSON.stringify({
+        ts: new Date(now - i * 1000).toISOString(),
+        user: "Tayfun", company: "plumbing",
+        tool: "simpro_search_jobs", ok: true, durationMs: 1,
+      }));
+    }
+    fs.writeFileSync(auditFile, lines.join("\n") + "\n");
+    const res = await request(buildApp())
+      .get("/admin/usage/Tayfun?range=30d")
+      .set("Authorization", "Bearer smcp_admin");
+    expect(res.status).toBe(200);
+    // simpro_get_invoice should appear above simpro_search_jobs in the top
+    // tools list (55 vs 5 — the older invoices are NOT lost to the 50-cap).
+    const invoiceIdx = res.text.indexOf("simpro_get_invoice");
+    const searchIdx = res.text.indexOf("simpro_search_jobs");
+    expect(invoiceIdx).toBeGreaterThan(-1);
+    expect(searchIdx).toBeGreaterThan(-1);
+    // First top-tool listed = highest count = invoice
+    expect(invoiceIdx).toBeLessThan(searchIdx);
+  });
 });

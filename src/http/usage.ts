@@ -222,3 +222,17 @@ export function filterLinesByUser(lines: string[], userName: string): string[] {
   }
   return out;
 }
+
+/**
+ * Filter audit lines to those whose timestamp is strictly after the given
+ * cutoff (ms epoch). Uses the same parseLine guard as the rest of the
+ * aggregator, so misformatted lines are silently dropped.
+ */
+export function filterLinesAfter(lines: string[], cutMs: number): string[] {
+  const out: string[] = [];
+  for (const raw of lines) {
+    const r = parseLine(raw);
+    if (r && r.ts > cutMs) out.push(raw);
+  }
+  return out;
+}

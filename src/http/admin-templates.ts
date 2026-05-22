@@ -816,19 +816,21 @@ export interface RenderUserUsageOpts {
   stats: UsageStats;
   now: number;
   range: UsageViewRange;
-  /** Last N (≤50) audit lines for this user within the range, newest first. */
+  /** All audit lines for this user within the picked range; used for top-tools aggregation. */
+  inRangeLines: string[];
+  /** The recent slice (≤50) for the activity table, newest first. */
   recentLines: string[];
 }
 
 export function renderUserUsageView(opts: RenderUserUsageOpts): string {
-  const { adminName, userName, userMeta, stats, now, range, recentLines } = opts;
+  const { adminName, userName, userMeta, stats, now, range, inRangeLines, recentLines } = opts;
   const enrolled = userMeta !== null;
   const companies = userMeta?.companyAccess?.join(", ") ?? "—";
   const lastSeen = stats.perUser[0]?.lastSeenMs ?? null;
 
-  // Top tools — derive from the (already user-scoped) audit lines.
+  // Top tools — aggregated over ALL in-range activity (not just the 50-line slice).
   const toolCounts = new Map<string, number>();
-  for (const raw of recentLines) {
+  for (const raw of inRangeLines) {
     try {
       const o = JSON.parse(raw) as { tool?: string };
       if (typeof o.tool === "string") toolCounts.set(o.tool, (toolCounts.get(o.tool) ?? 0) + 1);
