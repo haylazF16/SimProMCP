@@ -700,13 +700,14 @@ export function renderUsageView(
   const failHealth = stats.failRate7d === 0 ? "healthy" : stats.failRate7d < 0.05 ? "warning" : "critical";
   const peakHealth = stats.peakReqPerSecLastHour < 3 ? "healthy" : stats.peakReqPerSecLastHour < 7 ? "warning" : "critical";
   const rl429Health = stats.rateLimitedTodayBySimpro === 0 ? "healthy" : "warning";
+  const failSub = stats.failRate7d === 0 ? "all good" : stats.failRate7d < 0.05 ? "minor errors" : "investigate";
 
   const tiles = [
     tile("Today",              String(stats.totals.today)),
     tile("Last 7 days",        String(stats.totals.last7d)),
     tile("Last 30 days",       String(stats.totals.last30d)),
     tile("Active users today", String(stats.activeUsersToday)),
-    tile("Fail rate (7d)",     failPct, undefined, failHealth),
+    tile("Fail rate (7d)",     failPct, failSub, failHealth),
     tile("Peak req/sec (1h)",  String(stats.peakReqPerSecLastHour), peakSub, peakHealth),
     tile("429s from Simpro",   String(stats.rateLimitedTodayBySimpro), "today", rl429Health),
     tile("Local rate-limit hits", localRl, "today"),
