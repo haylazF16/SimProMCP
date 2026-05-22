@@ -627,6 +627,13 @@ ${renderHeader("User created", adminName)}
 
 // ── Usage dashboard ──────────────────────────────────────────────────────────
 
+export type UsageViewRange = {
+  rangeKey: "today" | "7d" | "30d" | "90d" | "custom";
+  rangeMs: number;
+  fromIso?: string;
+  toIso?: string;
+};
+
 function fmtRelativeFromMs(ms: number | null, now: number): string {
   if (ms === null) return "never";
   const s = Math.max(0, Math.floor((now - ms) / 1000));
@@ -648,7 +655,12 @@ const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i));
 const DOM_LABELS = Array.from({ length: 31 }, (_, i) => String(i + 1));
 const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function renderUsageView(adminName: string, stats: UsageStats, now: number = Date.now()): string {
+export function renderUsageView(
+  adminName: string,
+  stats: UsageStats,
+  now: number = Date.now(),
+  range: UsageViewRange = { rangeKey: "30d", rangeMs: 30 * 24 * 60 * 60 * 1000 },
+): string {
   const failPct = (stats.failRate7d * 100).toFixed(1) + "%";
   const localRl = stats.localRateLimitHitsToday < 0
     ? "—" : String(stats.localRateLimitHitsToday);
@@ -664,6 +676,25 @@ export function renderUsageView(adminName: string, stats: UsageStats, now: numbe
     stats.totals.last30d === 0 && stats.perUser.every((u) => u.calls === 0)
       ? `<div class="trunc">No activity recorded yet — usage will populate here once tools start being called.</div>`
       : "";
+
+  const rangeBtn = (key: string, label: string) =>
+    `<a href="/admin/usage?range=${key}" class="r-btn ${range.rangeKey === key ? "on" : ""}">${label}</a>`;
+  const customForm = range.rangeKey === "custom"
+    ? `<form class="custom-range" method="GET" action="/admin/usage">
+         <input type="hidden" name="range" value="custom">
+         <label>From <input type="date" name="from" value="${esc(range.fromIso ?? "")}" required></label>
+         <label>To <input type="date" name="to" value="${esc(range.toIso ?? "")}" required></label>
+         <button type="submit">Load</button>
+       </form>`
+    : "";
+  const rangePicker = `<div class="range-picker">
+    ${rangeBtn("today", "Today")}
+    ${rangeBtn("7d", "7d")}
+    ${rangeBtn("30d", "30d")}
+    ${rangeBtn("90d", "90d")}
+    ${rangeBtn("custom", "Custom…")}
+    ${customForm}
+  </div>`;
 
   const tiles = [
     tile("Today",              String(stats.totals.today)),
@@ -709,8 +740,24 @@ export function renderUsageView(adminName: string, stats: UsageStats, now: numbe
   td.num { font-variant-numeric: tabular-nums; text-align:right; }
   .trunc { background:#fff3cd; color:#8a6d3b; padding:8px 12px;
            border-radius:4px; margin-bottom:12px; font-size:13px; }
+  .range-picker { display:flex; align-items:center; gap:6px; margin-bottom:16px;
+                  background:#fff; padding:8px 12px; border-radius:8px;
+                  box-shadow:0 1px 3px rgba(0,0,0,0.04); flex-wrap:wrap; }
+  .r-btn { color:#6b7280; padding:6px 12px; border-radius:6px;
+           text-decoration:none; font-size:13px; font-weight:500;
+           border:1px solid transparent; }
+  .r-btn:hover { background:#f3f4f6; color:#0f4c75; }
+  .r-btn.on { background:#eff6ff; color:#0f4c75; border-color:#bfdbfe; }
+  .custom-range { display:flex; align-items:center; gap:8px; margin-left:auto;
+                  font-size:12px; color:#374151; }
+  .custom-range input[type=date] { padding:4px 6px; border:1px solid #d1d5db;
+                                    border-radius:4px; font-size:12px; }
+  .custom-range button { background:#0f4c75; color:#fff; border:none;
+                         padding:5px 12px; border-radius:4px; cursor:pointer;
+                         font-size:12px; font-weight:600; }
 </style></head><body>
 ${renderHeader("Usage", adminName)}
+${rangePicker}
 ${trunc}
 ${noActivity}
 <div class="kpis">${tiles}</div>

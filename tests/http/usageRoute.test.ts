@@ -90,4 +90,25 @@ describe("GET /admin/usage", () => {
     expect(res.headers["x-frame-options"]).toBe("DENY");
     expect(res.headers["content-security-policy"]).toBeDefined();
   });
+
+  it("honors the ?range=7d query param and renders the picker with that range active", async () => {
+    writeAdminToken();
+    fs.writeFileSync(auditFile, "");
+    const res = await request(buildApp())
+      .get("/admin/usage?range=7d")
+      .set("Authorization", "Bearer smcp_admin");
+    expect(res.status).toBe(200);
+    // Range picker visible with 7d marked active.
+    expect(res.text).toMatch(/class="r-btn on"[^>]*>7d</);
+  });
+
+  it("defaults to 30d when no range param is given", async () => {
+    writeAdminToken();
+    fs.writeFileSync(auditFile, "");
+    const res = await request(buildApp())
+      .get("/admin/usage")
+      .set("Authorization", "Bearer smcp_admin");
+    expect(res.status).toBe(200);
+    expect(res.text).toMatch(/class="r-btn on"[^>]*>30d</);
+  });
 });

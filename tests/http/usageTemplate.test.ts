@@ -97,4 +97,11 @@ describe("renderUsageView", () => {
     const html = renderUsageView("Tayfun", emptyStats());
     expect(html.toLowerCase()).toContain("no activity recorded yet");
   });
+
+  it("renders the range picker with the picked range marked active", () => {
+    const html = renderUsageView("Tayfun", emptyStats(), Date.now(),
+      { rangeKey: "7d", rangeMs: 7 * 86400 * 1000 });
+    expect(html).toContain('class="r-btn on"');
+    expect(html).toMatch(/class="r-btn on"[^>]*>7d</);
+  });
 });

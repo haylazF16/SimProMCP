@@ -11,25 +11,59 @@ import { readRange } from "./auditReader.js";
 import { computeUsageStats } from "./usage.js";
 import { ADMIN_HEADERS, renderUsageView } from "./admin-templates.js";
 
-/** Days of audit history to load. Matches the widest chart window. */
+const ONE_DAY = 24 * 60 * 60 * 1000;
 const USAGE_WINDOW_DAYS = 90;
-/** Hard cap on lines loaded into memory. Matches the spec's safety bound. */
 const USAGE_LINE_CAP = 50_000;
 
+type RangeKey = "today" | "7d" | "30d" | "90d" | "custom";
+
+export interface ResolvedRange {
+  rangeKey: RangeKey;
+  rangeMs: number;
+  fromIso?: string;
+  toIso?: string;
+}
+
+/**
+ * Parse `?range=today|7d|30d|90d|custom` (with optional `&from=YYYY-MM-DD&to=YYYY-MM-DD`
+ * for custom). Falls back to "30d" on any malformed input.
+ */
+export function parseRange(query: Record<string, unknown>): ResolvedRange {
+  const r = typeof query.range === "string" ? query.range : "";
+  if (r === "today") return { rangeKey: "today", rangeMs: ONE_DAY };
+  if (r === "7d")    return { rangeKey: "7d",    rangeMs: 7 * ONE_DAY };
+  if (r === "90d")   return { rangeKey: "90d",   rangeMs: 90 * ONE_DAY };
+  if (r === "custom") {
+    const from = typeof query.from === "string" ? query.from : "";
+    const to   = typeof query.to   === "string" ? query.to   : "";
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/;
+    if (m.test(from) && m.test(to)) {
+      const fromMs = Date.parse(from + "T00:00:00Z");
+      const toMs   = Date.parse(to   + "T23:59:59Z");
+      if (Number.isFinite(fromMs) && Number.isFinite(toMs) && toMs > fromMs) {
+        return { rangeKey: "custom", rangeMs: toMs - fromMs, fromIso: from, toIso: to };
+      }
+    }
+  }
+  return { rangeKey: "30d", rangeMs: 30 * ONE_DAY };
+}
+
 export function handleUsageGet(config: Config) {
-  return (_req: Request, res: Response) => {
+  return (req: Request, res: Response) => {
     const now = Date.now();
-    const from = new Date(now - USAGE_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+    const range = parseRange(req.query as Record<string, unknown>);
+    const from = new Date(now - USAGE_WINDOW_DAYS * ONE_DAY);
     const to = new Date(now);
-    const range = readRange(config.SIMPRO_AUDIT_FILE, from, to, USAGE_LINE_CAP);
+    const rangeResult = readRange(config.SIMPRO_AUDIT_FILE, from, to, USAGE_LINE_CAP);
     const store = loadTokens(config.SIMPRO_TOKENS_FILE);
     const knownUsers = Object.values(store.tokens).map((r) => r.name);
-    const stats = computeUsageStats(range.lines, knownUsers, {
+    const stats = computeUsageStats(rangeResult.lines, knownUsers, {
       now,
-      truncated: range.truncated,
+      truncated: rangeResult.truncated,
+      rangeMs: range.rangeMs,
     });
     const adminName = (res.locals as { admin: { name: string } }).admin.name;
     for (const [k, v] of Object.entries(ADMIN_HEADERS)) res.set(k, v);
-    res.type("text/html").send(renderUsageView(adminName, stats, now));
+    res.type("text/html").send(renderUsageView(adminName, stats, now, range));
   };
 }
