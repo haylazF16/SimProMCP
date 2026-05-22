@@ -121,6 +121,9 @@ export function computeUsageStats(
     if (v > peakReqPerSecLastHour) peakReqPerSecLastHour = v;
   }
 
+  // Counts only ok=false rows that surfaced a 429 to the user. If a 429 is
+  // soft-retried successfully (logged as ok=true), it is intentionally NOT
+  // counted here — the metric is "user-visible Simpro throttling".
   let rateLimitedTodayBySimpro = 0;
   for (const r of rows) {
     if (r.ts > cutToday && !r.ok && r.errorMessage && /rate limit/i.test(r.errorMessage)) {
@@ -161,9 +164,12 @@ export function computeUsageStats(
       u.total7d++;
       if (!r.ok) u.fails7d++;
     }
-    if (r.ts > cut30d) u.last30d++;
+    if (r.ts > cut30d) {
+      u.last30d++;
+      // topTool is computed from the same window as the per-user table header.
+      u.toolCounts.set(r.tool, (u.toolCounts.get(r.tool) ?? 0) + 1);
+    }
     if (u.lastSeenMs === null || r.ts > u.lastSeenMs) u.lastSeenMs = r.ts;
-    u.toolCounts.set(r.tool, (u.toolCounts.get(r.tool) ?? 0) + 1);
   }
   const perUser: PerUserStats[] = [];
   for (const [name, u] of agg) {

@@ -92,4 +92,9 @@ describe("renderUsageView", () => {
     const html = renderUsageView("Tayfun", s);
     expect(html.toLowerCase()).toContain("truncated");
   });
+
+  it("shows a 'no activity yet' banner when the dataset is empty", () => {
+    const html = renderUsageView("Tayfun", emptyStats());
+    expect(html.toLowerCase()).toContain("no activity recorded yet");
+  });
 });

@@ -86,5 +86,8 @@ describe("GET /admin/usage", () => {
     expect(res.text).toContain("Tayfun");
     expect(res.text).toContain("Today");
     expect(res.text).toContain("Hour of day");
+    // Security headers should be applied (same as other /admin/* pages).
+    expect(res.headers["x-frame-options"]).toBe("DENY");
+    expect(res.headers["content-security-policy"]).toBeDefined();
   });
 });

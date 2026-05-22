@@ -632,6 +632,11 @@ export function renderUsageView(adminName: string, stats: UsageStats, now: numbe
     ? `<div class="trunc">Older entries truncated to keep the page snappy. Counts for the 30/90-day buckets may slightly under-report.</div>`
     : "";
 
+  const noActivity =
+    stats.totals.last30d === 0 && stats.perUser.every((u) => u.last30d === 0)
+      ? `<div class="trunc">No activity recorded yet — usage will populate here once tools start being called.</div>`
+      : "";
+
   const tiles = [
     tile("Today",              String(stats.totals.today)),
     tile("Last 7 days",        String(stats.totals.last7d)),
@@ -682,6 +687,7 @@ export function renderUsageView(adminName: string, stats: UsageStats, now: numbe
 <h1>Usage · ${esc(adminName)}</h1>
 ${NAV}
 ${trunc}
+${noActivity}
 <div class="kpis">${tiles}</div>
 
 <h2 style="font-size:16px;color:#0f4c75;margin:16px 0 8px;">Per user (last 30 days)</h2>
