@@ -43,6 +43,26 @@ export interface ComputeOpts {
   rangeMs?: number;
 }
 
+/**
+ * One of the named time-range keys used by the usage dashboard's range picker.
+ * "custom" requires accompanying `fromIso` / `toIso` dates on the resolved object.
+ */
+export type RangeKey = "today" | "7d" | "30d" | "90d" | "custom";
+
+/**
+ * Resolved time-range produced by `parseRange` (usageRoute.ts) and consumed by
+ * the templates that render the picker (admin-templates.ts). One canonical
+ * shape so the type can't drift between the two layers.
+ */
+export interface ResolvedRange {
+  rangeKey: RangeKey;
+  rangeMs: number;
+  /** Only set when rangeKey === "custom". YYYY-MM-DD. */
+  fromIso?: string;
+  /** Only set when rangeKey === "custom". YYYY-MM-DD. */
+  toIso?: string;
+}
+
 interface Row {
   ts: number;
   user: string;

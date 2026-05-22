@@ -8,21 +8,15 @@ import type { Request, Response } from "express";
 import type { Config } from "../config.js";
 import { loadTokens } from "./tokens.js";
 import { readRange } from "./auditReader.js";
-import { computeUsageStats } from "./usage.js";
+import { computeUsageStats, type ResolvedRange } from "./usage.js";
 import { ADMIN_HEADERS, renderUsageView } from "./admin-templates.js";
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
 const USAGE_WINDOW_DAYS = 90;
 const USAGE_LINE_CAP = 50_000;
 
-type RangeKey = "today" | "7d" | "30d" | "90d" | "custom";
-
-export interface ResolvedRange {
-  rangeKey: RangeKey;
-  rangeMs: number;
-  fromIso?: string;
-  toIso?: string;
-}
+// Re-export so existing imports `import { ResolvedRange } from "./usageRoute.js"` keep working.
+export type { ResolvedRange } from "./usage.js";
 
 /**
  * Parse `?range=today|7d|30d|90d|custom` (with optional `&from=YYYY-MM-DD&to=YYYY-MM-DD`

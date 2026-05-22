@@ -3,7 +3,7 @@
 // the handler logic stays scannable.
 
 import type { TokenRecord } from "./tokens.js";
-import type { UsageStats } from "./usage.js";
+import type { UsageStats, ResolvedRange } from "./usage.js";
 import { createHash } from "node:crypto";
 
 // Admin pages permit inline scripts because we use a small inline `onsubmit`
@@ -627,12 +627,9 @@ ${renderHeader("User created", adminName)}
 
 // ── Usage dashboard ──────────────────────────────────────────────────────────
 
-export type UsageViewRange = {
-  rangeKey: "today" | "7d" | "30d" | "90d" | "custom";
-  rangeMs: number;
-  fromIso?: string;
-  toIso?: string;
-};
+// UsageViewRange was an alias for ResolvedRange — both had identical shape.
+// Re-exported here for back-compat so external callers can keep the old name.
+export type UsageViewRange = ResolvedRange;
 
 function fmtRelativeFromMs(ms: number | null, now: number): string {
   if (ms === null) return "never";
@@ -660,7 +657,7 @@ export function renderUsageView(
   adminName: string,
   stats: UsageStats,
   now: number = Date.now(),
-  range: UsageViewRange = { rangeKey: "30d", rangeMs: 30 * 24 * 60 * 60 * 1000 },
+  range: ResolvedRange = { rangeKey: "30d", rangeMs: 30 * 24 * 60 * 60 * 1000 },
 ): string {
   const failPct = (stats.failRate7d * 100).toFixed(1) + "%";
   const localRl = stats.localRateLimitHitsToday < 0
@@ -822,7 +819,7 @@ export interface RenderUserUsageOpts {
   userMeta: TokenRecord | null;
   stats: UsageStats;
   now: number;
-  range: UsageViewRange;
+  range: ResolvedRange;
   /** All audit lines for this user within the picked range; used for top-tools aggregation. */
   inRangeLines: string[];
   /** The recent slice (≤50) for the activity table, newest first. */
