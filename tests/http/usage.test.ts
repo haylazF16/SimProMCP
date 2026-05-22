@@ -260,3 +260,66 @@ describe("computeUsageStats — perUser", () => {
     expect(names).toContain("Tayfun");
   });
 });
+
+describe("computeUsageStats — time-pattern buckets", () => {
+  it("buckets hourOfDay using local time over the last 30 days", () => {
+    const now = FIXED_NOW;
+    // 3 calls at local 09:xx, 1 call at local 14:xx, within last 30 days.
+    const mk = (hour: number) => {
+      const d = new Date(now - 60_000);
+      d.setHours(hour, 30, 0, 0); // mutate to a specific local hour
+      return JSON.stringify({
+        ts: d.toISOString(),
+        user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+        ok: true, durationMs: 1,
+      });
+    };
+    const s = computeUsageStats([mk(9), mk(9), mk(9), mk(14)], [], { now });
+    expect(s.hourOfDay[9]).toBe(3);
+    expect(s.hourOfDay[14]).toBe(1);
+    expect(s.hourOfDay.reduce((a, b) => a + b, 0)).toBe(4);
+  });
+
+  it("buckets dayOfMonth (1..31 -> index 0..30) over the last 90 days", () => {
+    const now = FIXED_NOW;
+    const d = new Date(now);
+    d.setDate(15); // 15th of the month
+    const line = JSON.stringify({
+      ts: d.toISOString(),
+      user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+      ok: true, durationMs: 1,
+    });
+    const s = computeUsageStats([line], [], { now });
+    expect(s.dayOfMonth[14]).toBe(1); // index = day-1
+    expect(s.dayOfMonth.reduce((a, b) => a + b, 0)).toBe(1);
+  });
+
+  it("buckets dayOfWeek with Mon=0 .. Sun=6", () => {
+    const now = FIXED_NOW;
+    const line = JSON.stringify({
+      ts: new Date(now - 60_000).toISOString(),
+      user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+      ok: true, durationMs: 1,
+    });
+    const s = computeUsageStats([line], [], { now });
+    // The day of FIXED_NOW in server local time. Compute the expected bucket
+    // dynamically so this test is TZ-stable.
+    const jsDay = new Date(now - 60_000).getDay(); // 0=Sun..6=Sat
+    const expected = (jsDay + 6) % 7; // 0=Mon..6=Sun
+    expect(s.dayOfWeek[expected]).toBe(1);
+    expect(s.dayOfWeek.reduce((a, b) => a + b, 0)).toBe(1);
+  });
+
+  it("excludes rows outside the bucket windows (>30d for hour/dow, >90d for dom)", () => {
+    const now = FIXED_NOW;
+    const old = JSON.stringify({
+      ts: new Date(now - 100 * ONE_DAY_MS).toISOString(),
+      user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+      ok: true, durationMs: 1,
+    });
+    const s = computeUsageStats([old], [], { now });
+    expect(s.hourOfDay.reduce((a, b) => a + b, 0)).toBe(0);
+    expect(s.dayOfMonth.reduce((a, b) => a + b, 0)).toBe(0);
+    expect(s.dayOfWeek.reduce((a, b) => a + b, 0)).toBe(0);
+  });
+});

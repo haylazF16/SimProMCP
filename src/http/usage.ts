@@ -71,6 +71,7 @@ function parseLine(raw: string): Row | null {
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
 const ONE_HOUR = 60 * 60 * 1000;
+const NINETY_DAYS = 90 * ONE_DAY;
 
 export function computeUsageStats(
   lines: string[],
@@ -187,6 +188,23 @@ export function computeUsageStats(
     return a.name.localeCompare(b.name);
   });
 
+  const hourOfDay = Array(24).fill(0) as number[];
+  const dayOfMonth = Array(31).fill(0) as number[];
+  const dayOfWeek = Array(7).fill(0) as number[];
+  const cut90d = now - NINETY_DAYS;
+  for (const r of rows) {
+    if (r.ts > cut30d) {
+      const d = new Date(r.ts);
+      hourOfDay[d.getHours()]++;
+      // Convert JS Sun..Sat (0..6) to Mon..Sun (0..6).
+      dayOfWeek[(d.getDay() + 6) % 7]++;
+    }
+    if (r.ts > cut90d) {
+      const d = new Date(r.ts);
+      dayOfMonth[d.getDate() - 1]++;
+    }
+  }
+
   return {
     totals: { today, last7d, last30d },
     activeUsersToday: todayUsers.size,
@@ -195,9 +213,9 @@ export function computeUsageStats(
     rateLimitedTodayBySimpro,
     localRateLimitHitsToday: -1,
     perUser,
-    hourOfDay: Array(24).fill(0),
-    dayOfMonth: Array(31).fill(0),
-    dayOfWeek: Array(7).fill(0),
+    hourOfDay,
+    dayOfMonth,
+    dayOfWeek,
     truncated: opts.truncated === true,
   };
 }
