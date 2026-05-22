@@ -141,6 +141,7 @@ const STYLE = `
 const NAV = `<div class="nav">
   <a href="/admin">Users</a>
   <a href="/admin/audit">Audit log</a>
+  <a href="/admin/usage">Usage</a>
   <a href="/admin/users/new">Create user manually</a>
   <form method="POST" action="/admin/logout" style="display:inline;margin-left:16px;">
     <button type="submit" style="background:none;border:none;color:#0f4c75;font-weight:600;cursor:pointer;padding:0;font-family:inherit;font-size:inherit;">Logout</button>
