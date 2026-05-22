@@ -182,15 +182,6 @@ const STYLE = `
   .header .header-user { font-size:12px; color:#6b7280; padding-left:8px; }
 `;
 
-const NAV = `<div class="nav">
-  <a href="/admin">Users</a>
-  <a href="/admin/audit">Audit log</a>
-  <a href="/admin/usage">Usage</a>
-  <a href="/admin/users/new">Create user manually</a>
-  <form method="POST" action="/admin/logout" style="display:inline;margin-left:16px;">
-    <button type="submit" style="background:none;border:none;color:#0f4c75;font-weight:600;cursor:pointer;padding:0;font-family:inherit;font-size:inherit;">Logout</button>
-  </form>
-</div>`;
 
 export function renderDashboard(adminName: string, users: Array<{ smcpToken: string; record: TokenRecord }>): string {
   const rows = users.length === 0
@@ -225,8 +216,7 @@ export function renderDashboard(adminName: string, users: Array<{ smcpToken: str
   return `<!doctype html><html><head><meta charset="utf-8">
 <title>Admin — Goldman Simpro AI tool</title>
 <style>${STYLE}</style></head><body>
-<h1>Admin · ${esc(adminName)}</h1>
-${NAV}
+${renderHeader("Users", adminName)}
 <table>
   <thead><tr>
     <th>Name</th><th>Companies</th><th>Write</th><th>Enrolled via</th>
@@ -550,8 +540,7 @@ export function renderAuditView(
   .badge.co-other    { background:#eee;    color:#666; }
   .legend { color:#888; font-size:11px; margin-top:6px; }
 </style></head><body>
-<h1>Activity log · ${esc(adminName)}</h1>
-${NAV}
+${renderHeader("Activity log", adminName)}
 ${historyForm}
 ${summary}
 <div class="filters">
@@ -600,11 +589,11 @@ ${summary}
 </body></html>`;
 }
 
-export function renderManualCreatePage(opts: { errorMessage?: string; submittedKey?: string; submittedName?: string } = {}): string {
+export function renderManualCreatePage(adminName: string, opts: { errorMessage?: string; submittedKey?: string; submittedName?: string } = {}): string {
   const err = opts.errorMessage ? `<div style="color:#c0392b;margin-bottom:12px;">${esc(opts.errorMessage)}</div>` : "";
   return `<!doctype html><html><head><meta charset="utf-8">
 <title>Admin · Create user manually</title><style>${STYLE}</style></head><body>
-<h1>Create user manually</h1>${NAV}
+${renderHeader("Create user", adminName)}
 <form class="create" method="POST" action="/admin/users">
 ${err}
 <label>Coworker's full name<br><input type="text" name="name" required maxlength="100"
@@ -616,7 +605,7 @@ ${err}
 </body></html>`;
 }
 
-export function renderManualCreateResult(record: TokenRecord, smcpToken: string): string {
+export function renderManualCreateResult(adminName: string, record: TokenRecord, smcpToken: string): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <title>Admin · User created</title><style>${STYLE}
 details { background:#fff; padding:12px; border-radius:4px; margin-top:16px; }
@@ -624,7 +613,7 @@ details summary { cursor:pointer; color:#666; font-size:12px; }
 .token { font-family: monospace; word-break: break-all; background:#f0f0f0;
          padding:8px; border-radius:3px; margin-top:8px; }
 </style></head><body>
-<h1>User created</h1>${NAV}
+${renderHeader("User created", adminName)}
 <p><b>Name:</b> ${esc(record.name)}<br>
 <b>Companies:</b> ${esc(record.companyAccess.join(", "))}<br>
 <b>Writes:</b> ${record.writeEnabled ? "enabled" : "disabled"}</p>
@@ -723,8 +712,7 @@ export function renderUsageView(adminName: string, stats: UsageStats, now: numbe
   .trunc { background:#fff3cd; color:#8a6d3b; padding:8px 12px;
            border-radius:4px; margin-bottom:12px; font-size:13px; }
 </style></head><body>
-<h1>Usage · ${esc(adminName)}</h1>
-${NAV}
+${renderHeader("Usage", adminName)}
 ${trunc}
 ${noActivity}
 <div class="kpis">${tiles}</div>

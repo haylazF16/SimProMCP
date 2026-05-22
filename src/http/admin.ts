@@ -269,14 +269,16 @@ export function attachAdminRoutes(router: Router, config: Config): void {
 
   // GET /admin/users/new — manual create form
   router.get("/admin/users/new", admin, (_req, res) => {
-    withHeaders(res).type("text/html").send(renderManualCreatePage());
+    const adminName = (res.locals as { admin: { name: string } }).admin.name;
+    withHeaders(res).type("text/html").send(renderManualCreatePage(adminName));
   });
 
   // POST /admin/users — manual create submission
   router.post("/admin/users", admin, async (req, res) => {
+    const adminName = (res.locals as { admin: { name: string } }).admin.name;
     const { name, simpro_key } = req.body as { name?: string; simpro_key?: string };
     if (!name || !simpro_key) {
-      withHeaders(res).type("text/html").send(renderManualCreatePage({
+      withHeaders(res).type("text/html").send(renderManualCreatePage(adminName, {
         errorMessage: "Both name and Simpro key required.",
         submittedName: name,
       }));
@@ -297,15 +299,14 @@ export function attachAdminRoutes(router: Router, config: Config): void {
         name_required: "Name required.",
         unexpected_status: "Simpro returned an unexpected response.",
       };
-      withHeaders(res).type("text/html").send(renderManualCreatePage({
+      withHeaders(res).type("text/html").send(renderManualCreatePage(adminName, {
         errorMessage: messages[result.reason] ?? `Error: ${result.reason}`,
         submittedName: name,
         submittedKey: simpro_key,
       }));
       return;
     }
-    const actor = (res.locals as { admin: { name: string } }).admin.name;
-    log.info(`admin.action actor=${sanitizeForLog(actor)} action=create target=${sanitizeForLog(result.record.name)} idempotent=${result.wasIdempotent}`);
-    withHeaders(res).type("text/html").send(renderManualCreateResult(result.record, result.smcpToken));
+    log.info(`admin.action actor=${sanitizeForLog(adminName)} action=create target=${sanitizeForLog(result.record.name)} idempotent=${result.wasIdempotent}`);
+    withHeaders(res).type("text/html").send(renderManualCreateResult(adminName, result.record, result.smcpToken));
   });
 }
