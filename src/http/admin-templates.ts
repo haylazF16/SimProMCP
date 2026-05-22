@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 // confirm() on destructive actions. All interpolations into HTML go through
 // esc(), so no user content reaches script context. Access is gated by
 // requireAdmin so only trusted admins can render these pages.
-const CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'";
+const CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'";
 export const ADMIN_HEADERS = {
   "Content-Security-Policy": CSP,
   "X-Frame-Options": "DENY",

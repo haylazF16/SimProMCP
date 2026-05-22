@@ -105,11 +105,18 @@ function summarizeArgs(toolName: string, args: unknown): string | undefined {
     return null;
   };
 
-  // Primary ID: any key named `id` or matching `<noun>Id` (jobId, customerId…).
+  // Primary ID: the `id` field used by get_X tools — prefixed with # for
+  // visual prominence.
+  const primaryId = safeScalar(a.id, 40);
+  if (primaryId) parts.push(`#${primaryId}`);
+
+  // Other ID-shaped keys (customerID, siteID, jobID, etc.) — show each as
+  // `<key>:<value>` so the audit entry self-describes which type of ID.
   for (const key of Object.keys(a)) {
-    if (key === "id" || /^[a-z][a-zA-Z]*Id$/.test(key)) {
+    if (key === "id") continue;
+    if (/^[a-z][a-zA-Z]*ID?$/.test(key)) {
       const v = safeScalar(a[key], 40);
-      if (v) { parts.push(`#${v}`); break; }
+      if (v) parts.push(`${key}:${v}`);
     }
   }
 
@@ -118,7 +125,7 @@ function summarizeArgs(toolName: string, args: unknown): string | undefined {
   if (q) parts.push(`q="${q}"`);
 
   // Common search/filter args worth showing (allowlist only).
-  for (const k of ["customerName", "status", "dateFrom", "dateTo"] as const) {
+  for (const k of ["customerName", "status", "stage", "dateFrom", "dateTo", "pageSize"] as const) {
     const v = safeScalar(a[k], 40);
     if (v) parts.push(`${k}=${v}`);
   }

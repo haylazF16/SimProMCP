@@ -38,6 +38,10 @@ export function parseRange(query: Record<string, unknown>): ResolvedRange {
         return { rangeKey: "custom", rangeMs: toMs - fromMs, fromIso: from, toIso: to };
       }
     }
+    // Custom selected but no valid from/to yet — keep rangeKey as "custom"
+    // so the picker shows the date inputs. Charts/table use a 30d window
+    // until the user fills in the dates.
+    return { rangeKey: "custom", rangeMs: 30 * ONE_DAY, fromIso: from || undefined, toIso: to || undefined };
   }
   return { rangeKey: "30d", rangeMs: 30 * ONE_DAY };
 }
