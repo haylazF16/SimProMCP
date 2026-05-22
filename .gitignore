@@ -15,6 +15,9 @@ dist/
 *.swp
 Thumbs.db
 
+# Superpowers brainstorming session files (local mockups, transient)
+.superpowers/
+
 # Server runtime files (HTTP mode) — hold secrets / PII, never commit.
 tokens.json
 audit.log
