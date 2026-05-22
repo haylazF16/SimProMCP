@@ -619,8 +619,7 @@ const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i));
 const DOM_LABELS = Array.from({ length: 31 }, (_, i) => String(i + 1));
 const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function renderUsageView(adminName: string, stats: UsageStats): string {
-  const now = Date.now();
+export function renderUsageView(adminName: string, stats: UsageStats, now: number = Date.now()): string {
   const failPct = (stats.failRate7d * 100).toFixed(1) + "%";
   const localRl = stats.localRateLimitHitsToday < 0
     ? "—" : String(stats.localRateLimitHitsToday);
