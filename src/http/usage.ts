@@ -120,6 +120,13 @@ export function computeUsageStats(
     if (v > peakReqPerSecLastHour) peakReqPerSecLastHour = v;
   }
 
+  let rateLimitedTodayBySimpro = 0;
+  for (const r of rows) {
+    if (r.ts > cutToday && !r.ok && r.errorMessage && /rate limit/i.test(r.errorMessage)) {
+      rateLimitedTodayBySimpro++;
+    }
+  }
+
   const perUser: PerUserStats[] = knownUsers.map((name) => ({
     name,
     today: 0,
@@ -135,7 +142,7 @@ export function computeUsageStats(
     activeUsersToday: todayUsers.size,
     failRate7d,
     peakReqPerSecLastHour,
-    rateLimitedTodayBySimpro: 0,
+    rateLimitedTodayBySimpro,
     localRateLimitHitsToday: -1,
     perUser,
     hourOfDay: Array(24).fill(0),

@@ -178,3 +178,34 @@ describe("computeUsageStats — peakReqPerSecLastHour", () => {
     expect(s.peakReqPerSecLastHour).toBe(0);
   });
 });
+
+describe("computeUsageStats — rateLimitedTodayBySimpro", () => {
+  it("counts failed rows whose errorMessage matches /rate limit/i within today", () => {
+    const now = FIXED_NOW;
+    const mk = (ageMs: number, ok: boolean, errorMessage?: string) =>
+      JSON.stringify({
+        ts: new Date(now - ageMs).toISOString(),
+        user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+        ok, durationMs: 1, errorMessage,
+      });
+    const lines = [
+      mk(60_000, false, "Rate limited by Simpro — wait a moment and try again."),
+      mk(60_000, false, "Some other error"),
+      mk(60_000, true),
+      mk(2 * ONE_DAY_MS, false, "Rate limited by Simpro"), // outside today
+    ];
+    const s = computeUsageStats(lines, [], { now });
+    expect(s.rateLimitedTodayBySimpro).toBe(1);
+  });
+
+  it("is 0 when no failed rows match the rate-limit pattern", () => {
+    const now = FIXED_NOW;
+    const lines = [JSON.stringify({
+      ts: new Date(now - 60_000).toISOString(),
+      user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+      ok: false, durationMs: 1, errorMessage: "Not found.",
+    })];
+    const s = computeUsageStats(lines, [], { now });
+    expect(s.rateLimitedTodayBySimpro).toBe(0);
+  });
+});
