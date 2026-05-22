@@ -29,11 +29,9 @@ describe("computeUsageStats — empty input", () => {
     expect(s.perUser).toHaveLength(2);
     expect(s.perUser.map((u) => u.name).sort()).toEqual(["Sarah", "Tayfun"]);
     for (const u of s.perUser) {
-      expect(u.today).toBe(0);
-      expect(u.last7d).toBe(0);
-      expect(u.last30d).toBe(0);
+      expect(u.calls).toBe(0);
       expect(u.lastSeenMs).toBeNull();
-      expect(u.failRate7d).toBe(0);
+      expect(u.failRate).toBe(0);
       expect(u.topTool).toBeNull();
     }
   });
@@ -211,7 +209,7 @@ describe("computeUsageStats — rateLimitedTodayBySimpro", () => {
 });
 
 describe("computeUsageStats — perUser", () => {
-  it("aggregates per-user counts, lastSeen, failRate, and topTool, sorted by last30d desc", () => {
+  it("collapses per-user counts into a single in-range 'calls' value", () => {
     const now = FIXED_NOW;
     const mk = (user: string, ageMs: number, tool: string, ok = true) =>
       JSON.stringify({
@@ -225,26 +223,63 @@ describe("computeUsageStats — perUser", () => {
       mk("Tayfun", 5 * ONE_DAY_MS, "simpro_search_jobs", false),
       mk("Sarah",  60_000, "simpro_get_invoice"),
     ];
-    const s = computeUsageStats(lines, ["Tayfun", "Sarah", "Jamie"], { now });
+    const s = computeUsageStats(lines, ["Tayfun", "Sarah", "Jamie"], {
+      now, rangeMs: 30 * ONE_DAY_MS,
+    });
 
     expect(s.perUser.map((u) => u.name)).toEqual(["Tayfun", "Sarah", "Jamie"]);
-
     const t = s.perUser[0];
-    expect(t.today).toBe(2);
-    expect(t.last7d).toBe(4);
-    expect(t.last30d).toBe(4);
+    expect(t.calls).toBe(4); // all four Tayfun rows are within 30d
     expect(t.lastSeenMs).toBe(now - 60_000);
-    expect(t.failRate7d).toBeCloseTo(0.25, 3); // 1 fail of 4
-    expect(t.topTool).toBe("simpro_search_jobs"); // appears 3 times
+    expect(t.failRate).toBeCloseTo(0.25, 3);
+    expect(t.topTool).toBe("simpro_search_jobs");
+    expect(s.perUser[2].calls).toBe(0); // Jamie has no activity
+    expect(s.perUser[2].topTool).toBeNull();
+  });
 
-    const sarah = s.perUser[1];
-    expect(sarah.today).toBe(1);
-    expect(sarah.topTool).toBe("simpro_get_invoice");
+  it("scopes calls/topTool/failRate to the picked range", () => {
+    const now = FIXED_NOW;
+    const mk = (ageMs: number, tool: string, ok = true) =>
+      JSON.stringify({
+        ts: new Date(now - ageMs).toISOString(),
+        user: "Tayfun", company: "plumbing", tool, ok, durationMs: 1,
+      });
+    const lines = [
+      // last 1 day: 2 calls of get_job
+      mk(2 * 60 * 60 * 1000, "simpro_get_job"),
+      mk(5 * 60 * 60 * 1000, "simpro_get_job"),
+      // 5 days old: 4 calls of search_jobs (one failed)
+      mk(5 * ONE_DAY_MS, "simpro_search_jobs"),
+      mk(5 * ONE_DAY_MS + 1000, "simpro_search_jobs"),
+      mk(5 * ONE_DAY_MS + 2000, "simpro_search_jobs"),
+      mk(5 * ONE_DAY_MS + 3000, "simpro_search_jobs", false),
+    ];
+    // Range = 1d: only the get_job rows count.
+    const oneDay = computeUsageStats(lines, ["Tayfun"], { now, rangeMs: ONE_DAY_MS });
+    expect(oneDay.perUser[0].calls).toBe(2);
+    expect(oneDay.perUser[0].topTool).toBe("simpro_get_job");
+    expect(oneDay.perUser[0].failRate).toBe(0);
+    // Range = 7d: all six rows count, top tool flips to search_jobs.
+    const sevenDay = computeUsageStats(lines, ["Tayfun"], { now, rangeMs: 7 * ONE_DAY_MS });
+    expect(sevenDay.perUser[0].calls).toBe(6);
+    expect(sevenDay.perUser[0].topTool).toBe("simpro_search_jobs");
+    expect(sevenDay.perUser[0].failRate).toBeCloseTo(0.167, 3); // 1 of 6
+  });
 
-    const jamie = s.perUser[2]; // enrolled but no activity
-    expect(jamie.today).toBe(0);
-    expect(jamie.lastSeenMs).toBeNull();
-    expect(jamie.topTool).toBeNull();
+  it("lastSeenMs is unbounded — stays set even when no rows fall within the range", () => {
+    const now = FIXED_NOW;
+    const oldLine = JSON.stringify({
+      ts: new Date(now - 60 * ONE_DAY_MS).toISOString(),
+      user: "Tayfun", company: "plumbing", tool: "simpro_get_job",
+      ok: true, durationMs: 1,
+    });
+    // Pick a tight 1-day range; the old row is 60 days back — out of range.
+    const s = computeUsageStats([oldLine], ["Tayfun"], {
+      now, rangeMs: ONE_DAY_MS,
+    });
+    expect(s.perUser[0].calls).toBe(0);
+    expect(s.perUser[0].topTool).toBeNull();
+    expect(s.perUser[0].lastSeenMs).toBe(now - 60 * ONE_DAY_MS); // unbounded
   });
 
   it("includes a user who appears in lines but isn't in knownUsers (e.g. revoked)", () => {

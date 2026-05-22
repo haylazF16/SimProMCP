@@ -5,11 +5,13 @@
 
 export interface PerUserStats {
   name: string;
-  today: number;
-  last7d: number;
-  last30d: number;
+  /** Calls within the picked range (rangeMs). Default range is 30 days. */
+  calls: number;
+  /** Most recent activity, unbounded (not clipped by rangeMs). null = never seen. */
   lastSeenMs: number | null;
-  failRate7d: number;     // 0..1, 3 decimals
+  /** Failure rate within rangeMs; 0..1, 3 decimals; 0 when calls === 0. */
+  failRate: number;
+  /** Most-used tool within rangeMs. null when calls === 0. */
   topTool: string | null;
 }
 
@@ -37,6 +39,8 @@ export interface ComputeOpts {
   now?: number;
   /** Was the audit-line set truncated upstream? */
   truncated?: boolean;
+  /** Range width in ms for charts + perUser. Defaults to 30 days. */
+  rangeMs?: number;
 }
 
 interface Row {
@@ -71,7 +75,6 @@ function parseLine(raw: string): Row | null {
 
 const ONE_DAY = 24 * 60 * 60 * 1000;
 const ONE_HOUR = 60 * 60 * 1000;
-const NINETY_DAYS = 90 * ONE_DAY;
 
 export function computeUsageStats(
   lines: string[],
@@ -79,6 +82,8 @@ export function computeUsageStats(
   opts: ComputeOpts = {},
 ): UsageStats {
   const now = opts.now ?? Date.now();
+  const rangeMs = opts.rangeMs ?? 30 * ONE_DAY;
+  const cutRange = now - rangeMs;
   const cutToday = now - ONE_DAY;
   const cut7d    = now - 7 * ONE_DAY;
   const cut30d   = now - 30 * ONE_DAY;
@@ -131,45 +136,32 @@ export function computeUsageStats(
     }
   }
 
-  // Build a working map keyed by user name; start with known users so they
-  // appear even with zero activity, then layer in any users we see in lines.
+  // Per-user aggregation — counts/topTool/failRate are all scoped to rangeMs.
+  // lastSeenMs is intentionally unbounded.
   interface UserAgg {
-    today: number;
-    last7d: number;
-    last30d: number;
+    calls: number;
     lastSeenMs: number | null;
-    fails7d: number;
-    total7d: number;
+    fails: number;
     toolCounts: Map<string, number>;
   }
   const agg = new Map<string, UserAgg>();
   for (const name of knownUsers) {
-    agg.set(name, {
-      today: 0, last7d: 0, last30d: 0,
-      lastSeenMs: null, fails7d: 0, total7d: 0,
-      toolCounts: new Map(),
-    });
+    agg.set(name, { calls: 0, lastSeenMs: null, fails: 0, toolCounts: new Map() });
   }
   for (const r of rows) {
     let u = agg.get(r.user);
     if (!u) {
-      u = { today: 0, last7d: 0, last30d: 0,
-            lastSeenMs: null, fails7d: 0, total7d: 0,
-            toolCounts: new Map() };
+      u = { calls: 0, lastSeenMs: null, fails: 0, toolCounts: new Map() };
       agg.set(r.user, u);
     }
-    if (r.ts > cutToday) u.today++;
-    if (r.ts > cut7d) {
-      u.last7d++;
-      u.total7d++;
-      if (!r.ok) u.fails7d++;
-    }
-    if (r.ts > cut30d) {
-      u.last30d++;
-      // topTool is computed from the same window as the per-user table header.
+    // lastSeenMs: unbounded, every row.
+    if (u.lastSeenMs === null || r.ts > u.lastSeenMs) u.lastSeenMs = r.ts;
+    // calls / fails / toolCounts: only in-range rows.
+    if (r.ts > cutRange) {
+      u.calls++;
+      if (!r.ok) u.fails++;
       u.toolCounts.set(r.tool, (u.toolCounts.get(r.tool) ?? 0) + 1);
     }
-    if (u.lastSeenMs === null || r.ts > u.lastSeenMs) u.lastSeenMs = r.ts;
   }
   const perUser: PerUserStats[] = [];
   for (const [name, u] of agg) {
@@ -180,34 +172,26 @@ export function computeUsageStats(
     }
     perUser.push({
       name,
-      today: u.today,
-      last7d: u.last7d,
-      last30d: u.last30d,
+      calls: u.calls,
       lastSeenMs: u.lastSeenMs,
-      failRate7d: u.total7d === 0 ? 0 : Math.round((u.fails7d / u.total7d) * 1000) / 1000,
+      failRate: u.calls === 0 ? 0 : Math.round((u.fails / u.calls) * 1000) / 1000,
       topTool,
     });
   }
-  // Sort by last30d desc, then by name asc (stable within ties).
   perUser.sort((a, b) => {
-    if (b.last30d !== a.last30d) return b.last30d - a.last30d;
+    if (b.calls !== a.calls) return b.calls - a.calls;
     return a.name.localeCompare(b.name);
   });
 
   const hourOfDay = Array(24).fill(0) as number[];
   const dayOfMonth = Array(31).fill(0) as number[];
   const dayOfWeek = Array(7).fill(0) as number[];
-  const cut90d = now - NINETY_DAYS;
   for (const r of rows) {
-    if (r.ts > cut30d) {
+    if (r.ts > cutRange) {
       const d = new Date(r.ts);
       hourOfDay[d.getHours()]++;
-      // Convert JS Sun..Sat (0..6) to Mon..Sun (0..6).
-      dayOfWeek[(d.getDay() + 6) % 7]++;
-    }
-    if (r.ts > cut90d) {
-      const d = new Date(r.ts);
       dayOfMonth[d.getDate() - 1]++;
+      dayOfWeek[(d.getDay() + 6) % 7]++;
     }
   }
 

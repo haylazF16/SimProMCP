@@ -661,7 +661,7 @@ export function renderUsageView(adminName: string, stats: UsageStats, now: numbe
     : "";
 
   const noActivity =
-    stats.totals.last30d === 0 && stats.perUser.every((u) => u.last30d === 0)
+    stats.totals.last30d === 0 && stats.perUser.every((u) => u.calls === 0)
       ? `<div class="trunc">No activity recorded yet — usage will populate here once tools start being called.</div>`
       : "";
 
@@ -677,14 +677,12 @@ export function renderUsageView(adminName: string, stats: UsageStats, now: numbe
   ].join("");
 
   const rows = stats.perUser.length === 0
-    ? `<tr><td colspan="7" class="empty">No users enrolled yet.</td></tr>`
+    ? `<tr><td colspan="5" class="empty">No users enrolled yet.</td></tr>`
     : stats.perUser.map((u) => {
-        const fpStr = u.last7d === 0 ? "—" : (u.failRate7d * 100).toFixed(1) + "%";
+        const fpStr = u.calls === 0 ? "—" : (u.failRate * 100).toFixed(1) + "%";
         return `<tr>
           <td><b>${esc(u.name)}</b></td>
-          <td class="num">${u.today}</td>
-          <td class="num">${u.last7d}</td>
-          <td class="num">${u.last30d}</td>
+          <td class="num">${u.calls}</td>
           <td>${esc(fmtRelativeFromMs(u.lastSeenMs, now))}</td>
           <td class="num">${fpStr}</td>
           <td>${u.topTool ? esc(u.topTool) : "—"}</td>
@@ -720,7 +718,7 @@ ${noActivity}
 <h2 style="font-size:16px;color:#0f4c75;margin:16px 0 8px;">Per user (last 30 days)</h2>
 <table>
   <thead><tr>
-    <th>User</th><th>Today</th><th>7d</th><th>30d</th>
+    <th>User</th><th>Calls</th>
     <th>Last seen</th><th>Fail rate</th><th>Top tool</th>
   </tr></thead>
   <tbody>${rows}</tbody>

@@ -66,10 +66,10 @@ describe("renderUsageView", () => {
   it("renders the per-user table with one row per user", () => {
     const s = emptyStats();
     s.perUser = [
-      { name: "Tayfun", today: 4, last7d: 30, last30d: 120, lastSeenMs: Date.now(),
-        failRate7d: 0.02, topTool: "simpro_search_jobs" },
-      { name: "Sarah",  today: 0, last7d: 5,  last30d: 18,  lastSeenMs: null,
-        failRate7d: 0, topTool: null },
+      { name: "Tayfun", calls: 120, lastSeenMs: Date.now(),
+        failRate: 0.02, topTool: "simpro_search_jobs" },
+      { name: "Sarah",  calls: 5,   lastSeenMs: null,
+        failRate: 0,    topTool: null },
     ];
     const html = renderUsageView("Tayfun", s);
     expect(html).toContain("Tayfun");
