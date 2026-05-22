@@ -321,9 +321,6 @@ export function renderAuditView(
       const rowClass = r.ok ? "" : ' class="row-fail"';
       // Combined searchable haystack for the free-text box.
       const haystack = `${r.user} ${r.company} ${action} ${r.tool} ${r.details ?? ""}`.toLowerCase();
-      const detailsHtml = r.details
-        ? `<div class="details">${esc(r.details)}</div>`
-        : "";
       // data-ts is the epoch ms so the date-range filter can compare numerically.
       const tsEpoch = Date.parse(r.ts) || 0;
       return `<tr${rowClass} data-search="${esc(haystack)}"
@@ -336,8 +333,7 @@ export function renderAuditView(
         <td><b>${esc(r.user)}</b></td>
         <td><span class="badge ${companyClass}">${esc(r.company)}</span></td>
         <td>
-          <div class="action">${esc(action)} <span class="raw" title="raw tool: ${esc(r.tool)}">·</span></div>
-          ${detailsHtml}
+          <div class="action">${esc(action)}${r.details ? ` <span class="detail">${esc(r.details)}</span>` : ""} <span class="raw" title="raw tool: ${esc(r.tool)}">·</span></div>
         </td>
         <td class="num">${esc(fmtDuration(r.durationMs))}</td>
         <td>${resultCell}</td>
@@ -504,8 +500,7 @@ export function renderAuditView(
   .fail { color:#c0392b; font-weight:700; }
   .raw  { color:#bbb; cursor:help; }
   .action { font-weight:500; }
-  .details { color:#666; font-size:12px; margin-top:2px;
-             font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .detail { color:#0f4c75; font-weight:600; margin-left:4px; }
   .badge.co-plumbing { background:#e0ecff; color:#0f4c75; }
   .badge.co-energy   { background:#e6f7e6; color:#1c6b1c; }
   .badge.co-other    { background:#eee;    color:#666; }
