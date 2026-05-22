@@ -249,7 +249,23 @@ function actionKind(tool: string): "view" | "search" | "list" | "create" | "upda
   return "other";
 }
 
-export function renderAuditView(adminName: string, lines: string[]): string {
+export type AuditViewContext =
+  | { mode: "tail"; tailLimit: number }
+  | {
+      mode: "range";
+      from: string;
+      to: string;
+      truncated: boolean;
+      totalShown: number;
+      cap: number;
+      sources: string[];
+    };
+
+export function renderAuditView(
+  adminName: string,
+  lines: string[],
+  ctx: AuditViewContext = { mode: "tail", tailLimit: 100 },
+): string {
   const rows = parseAuditLines(lines).reverse(); // newest first
   const now = Date.now();
 
@@ -296,15 +312,43 @@ export function renderAuditView(adminName: string, lines: string[]): string {
     }).join("");
 
   const summary = (() => {
-    if (rows.length === 0) return "";
     const users = new Set(rows.map((r) => r.user));
     const fails = rows.filter((r) => !r.ok).length;
+    let label: string;
+    let rangeBack = "";
+    if (ctx.mode === "range") {
+      label = `Showing <b id="visCount">${rows.length}</b> actions between
+        <b>${esc(ctx.from)}</b> and <b>${esc(ctx.to)}</b>
+        from <b>${users.size}</b> ${users.size === 1 ? "person" : "people"}`;
+      if (ctx.truncated) {
+        label += ` <span class="trunc-pill" title="The range contained more than ${ctx.cap} entries — narrow the dates if you need older entries from this range.">capped at ${ctx.cap}</span>`;
+      }
+      rangeBack = ` · <a href="/admin/audit" class="back-link">back to recent activity</a>`;
+    } else {
+      label = `Showing the last <b id="visCount">${rows.length}</b> actions
+        from <b>${users.size}</b> ${users.size === 1 ? "person" : "people"}`;
+    }
     return `<div class="summary">
-      Showing the last <b id="visCount">${rows.length}</b> actions
-      from <b>${users.size}</b> ${users.size === 1 ? "person" : "people"}.
+      ${label}.
       ${fails > 0 ? `<span class="fail-pill">${fails} failed</span>` : ""}
+      ${rangeBack}
     </div>`;
   })();
+
+  // Default date inputs in the history form: if we're in a range view, prefill
+  // them; otherwise leave blank.
+  const fromVal = ctx.mode === "range" ? esc(ctx.from) : "";
+  const toVal = ctx.mode === "range" ? esc(ctx.to) : "";
+  // Today as max for the date picker so people don't accidentally pick future
+  // dates (the audit log can't have future entries).
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const historyForm = `<form class="history" method="GET" action="/admin/audit">
+    <span class="history-label">Search history:</span>
+    <label>From <input type="date" name="from" value="${fromVal}" max="${todayIso}" required></label>
+    <label>To   <input type="date" name="to"   value="${toVal}"   max="${todayIso}" required></label>
+    <button type="submit">Load</button>
+    <span class="history-hint">Searches the live log plus all monthly archives within the range.</span>
+  </form>`;
 
   const userOptions = ['<option value="">All users</option>']
     .concat(uniqUsers.map((u) => `<option value="${esc(u)}">${esc(u)}</option>`))
@@ -390,6 +434,23 @@ export function renderAuditView(adminName: string, lines: string[]): string {
              font-size:13px; color:#555; }
   .summary .fail-pill { background:#fdecea; color:#c0392b; padding:2px 8px;
                         border-radius:10px; margin-left:8px; font-weight:600; }
+  .summary .trunc-pill { background:#fff3cd; color:#8a6d3b; padding:2px 8px;
+                         border-radius:10px; margin-left:8px; font-weight:600;
+                         cursor:help; }
+  .summary .back-link { color:#0f4c75; text-decoration:none; font-weight:600; }
+  .summary .back-link:hover { text-decoration:underline; }
+  .history { background:#fff; padding:10px 14px; border-radius:4px;
+             box-shadow:0 1px 3px rgba(0,0,0,0.08); margin-bottom:12px;
+             display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .history-label { font-weight:600; color:#0f4c75; margin-right:4px; }
+  .history label { font-size:13px; color:#444; }
+  .history input[type=date] { margin-left:4px; padding:5px 8px; font-size:13px;
+                              border:1px solid #ccd; border-radius:4px; }
+  .history button { background:#0f4c75; color:#fff; border:none;
+                    padding:6px 14px; border-radius:4px; cursor:pointer;
+                    font-size:13px; font-weight:600; }
+  .history button:hover { background:#1b5e9c; }
+  .history-hint { font-size:11px; color:#888; margin-left:auto; }
   .filters { display:flex; flex-wrap:wrap; gap:8px; align-items:center;
              margin-bottom:12px; background:#fff; padding:10px 12px;
              border-radius:4px; box-shadow:0 1px 3px rgba(0,0,0,0.06); }
@@ -419,6 +480,7 @@ export function renderAuditView(adminName: string, lines: string[]): string {
 </style></head><body>
 <h1>Activity log · ${esc(adminName)}</h1>
 ${NAV}
+${historyForm}
 ${summary}
 <div class="filters">
   <label>User</label>

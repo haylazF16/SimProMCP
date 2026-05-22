@@ -8,11 +8,11 @@
 // record has isAdmin=true.
 
 import { Router, type Request, type Response, type NextFunction, type RequestHandler } from "express";
-import * as fs from "node:fs";
 import { Config } from "../config.js";
 import { log } from "../logger.js";
 import { authenticate, loadTokens, removeUser, updateUser, type TokenRecord } from "./tokens.js";
 import { enrollUser } from "./enroll.js";
+import { readRange, tailLatest } from "./auditReader.js";
 import {
   ADMIN_HEADERS,
   keyHash,
@@ -22,6 +22,26 @@ import {
   renderManualCreateResult,
   renderLoginPage,
 } from "./admin-templates.js";
+
+/** Default lines shown when no date range is requested (tail of audit.log). */
+const AUDIT_DEFAULT_LIMIT = 100;
+/** Hard cap on lines returned when a date range IS specified. */
+const AUDIT_RANGE_CAP = 5000;
+
+/** Parse a YYYY-MM-DD query param into a Date (UTC midnight). Returns null if invalid. */
+function parseDateParam(v: unknown, endOfDay: boolean): Date | null {
+  if (typeof v !== "string") return null;
+  const m = v.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const ms = endOfDay
+    ? Date.UTC(y, mo - 1, d, 23, 59, 59, 999)
+    : Date.UTC(y, mo - 1, d, 0, 0, 0, 0);
+  const dt = new Date(ms);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
 
 const ADMIN_COOKIE = "goldman_admin_session";
 
@@ -197,17 +217,36 @@ export function attachAdminRoutes(router: Router, config: Config): void {
     res.redirect("/admin");
   });
 
-  // GET /admin/audit
-  router.get("/admin/audit", admin, (_req, res) => {
-    let lines: string[] = [];
-    try {
-      const raw = fs.readFileSync(config.SIMPRO_AUDIT_FILE, "utf8");
-      lines = raw.split("\n").filter((l) => l.length > 0).slice(-100);
-    } catch {
-      // File may not exist yet — fine.
-    }
+  // GET /admin/audit  (?from=YYYY-MM-DD&to=YYYY-MM-DD optional)
+  // Without dates: tail the last 100 lines (cheap, default page load).
+  // With dates: scan the current log + relevant monthly archives, return up
+  // to 5000 matching entries.
+  router.get("/admin/audit", admin, (req, res) => {
+    const from = parseDateParam(req.query.from, false);
+    const to = parseDateParam(req.query.to, true);
     const adminName = (res.locals as { admin: { name: string } }).admin.name;
-    withHeaders(res).type("text/html").send(renderAuditView(adminName, lines));
+
+    if (from && to && from.getTime() <= to.getTime()) {
+      const result = readRange(config.SIMPRO_AUDIT_FILE, from, to, AUDIT_RANGE_CAP);
+      withHeaders(res).type("text/html").send(
+        renderAuditView(adminName, result.lines, {
+          mode: "range",
+          from: req.query.from as string,
+          to: req.query.to as string,
+          truncated: result.truncated,
+          totalShown: result.lines.length,
+          cap: AUDIT_RANGE_CAP,
+          sources: result.sourcesRead,
+        }),
+      );
+      return;
+    }
+
+    // Default: tail the live file. Cheap and quick on every page load.
+    const lines = tailLatest(config.SIMPRO_AUDIT_FILE, AUDIT_DEFAULT_LIMIT);
+    withHeaders(res).type("text/html").send(
+      renderAuditView(adminName, lines, { mode: "tail", tailLimit: AUDIT_DEFAULT_LIMIT }),
+    );
   });
 
   // GET /admin/users/new — manual create form
