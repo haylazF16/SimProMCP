@@ -42,11 +42,21 @@ export function handleUserUsageGet(config: Config) {
       now, truncated: rangeResult.truncated, rangeMs: range.rangeMs,
     });
 
+    // Filter to the picked range before passing to the template.
+    // `recentLines` shows the user's most recent activity WITHIN range.
+    const cutRange = now - range.rangeMs;
+    const inRangeLines = userLines.filter((raw) => {
+      const m = raw.match(/"ts":"([^"]+)"/);
+      if (!m) return false;
+      const t = Date.parse(m[1]);
+      return Number.isFinite(t) && t > cutRange;
+    });
+
     const adminName = (res.locals as { admin: { name: string } }).admin.name;
     for (const [k, v] of Object.entries(ADMIN_HEADERS)) res.set(k, v);
     res.type("text/html").send(renderUserUsageView({
       adminName, userName, userMeta, stats, now, range,
-      recentLines: userLines.slice(-50).reverse(),
+      recentLines: inRangeLines.slice(-50).reverse(),
     }));
   };
 }

@@ -85,4 +85,31 @@ describe("GET /admin/usage/:userName", () => {
       .set("Authorization", "Bearer smcp_admin");
     expect(res.status).toBe(404);
   });
+
+  it("excludes audit lines outside the picked range from the recent-activity feed", async () => {
+    fs.writeFileSync(tokensFile, JSON.stringify({
+      tokens: {
+        "smcp_admin": {
+          name: "Tayfun", simproApiKey: "k1admin-12345",
+          companyAccess: ["plumbing"], isAdmin: true,
+        },
+      },
+    }));
+    const now = Date.now();
+    const oneHourAgo = new Date(now - 60 * 60 * 1000).toISOString();
+    const fortyDaysAgo = new Date(now - 40 * 24 * 60 * 60 * 1000).toISOString();
+    fs.writeFileSync(auditFile, [
+      JSON.stringify({ ts: oneHourAgo, user: "Tayfun", company: "plumbing",
+                       tool: "simpro_get_invoice", ok: true, durationMs: 10, details: "#recent" }),
+      JSON.stringify({ ts: fortyDaysAgo, user: "Tayfun", company: "plumbing",
+                       tool: "simpro_search_jobs", ok: true, durationMs: 20, details: "#old" }),
+    ].join("\n") + "\n");
+    // 7d range — only the 1h-ago row should appear in the recent feed.
+    const res = await request(buildApp())
+      .get("/admin/usage/Tayfun?range=7d")
+      .set("Authorization", "Bearer smcp_admin");
+    expect(res.status).toBe(200);
+    expect(res.text).toContain("#recent");
+    expect(res.text).not.toContain("#old");
+  });
 });
