@@ -39,7 +39,7 @@ export function renderBarChart(
   const barW = 16;
   const gap = 2;
   const maxH = opts.maxHeight ?? 50;
-  const width = values.length * (barW + gap) - gap;
+  const width = Math.max(0, values.length * (barW + gap) - gap);
   const totalH = maxH + 18; // room for the x-axis labels under the bars
   const bars = values.map((v, i) => {
     const h = max === 0 ? 1 : Math.max(1, Math.round((v / max) * maxH));
@@ -51,7 +51,7 @@ export function renderBarChart(
     if (opts.labelEvery <= 0 || i % opts.labelEvery !== 0) return "";
     const x = i * (barW + gap) + barW / 2;
     const label = opts.axisLabels[i] ?? "";
-    return `<text x="${x}" y="${maxH + 14}" text-anchor="middle" font-size="10" fill="#888">${label}</text>`;
+    return `<text x="${x}" y="${maxH + 14}" text-anchor="middle" font-size="10" fill="#888">${esc(label)}</text>`;
   }).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalH}" viewBox="0 0 ${width} ${totalH}" role="img">${bars}${labels}</svg>`;
 }
