@@ -37,50 +37,74 @@ export function renderHeader(pageTitle: string, adminName: string): string {
     <a href="/admin" class="brand" aria-label="Home">
       <img src="/admin/static/logo.svg" alt="Goldman Plumbing" height="32">
     </a>
-    <div class="page-title">${esc(pageTitle)}</div>
-    <div class="header-spacer"></div>
     <nav class="nav-links">
       <a href="/admin">Users</a>
       <a href="/admin/audit">Audit log</a>
       <a href="/admin/usage">Usage</a>
       <a href="/admin/users/new">Create user</a>
     </nav>
+    <div class="header-spacer"></div>
+    <div class="header-user">${esc(adminName)}</div>
     <form method="POST" action="/admin/logout" class="logout-form">
       <button type="submit">Logout</button>
     </form>
-    <div class="header-user">${esc(adminName)}</div>
-  </div>`;
+  </div>
+  <div class="page-title-bar"><h1>${esc(pageTitle)}</h1></div>`;
 }
 
 /**
- * Render a small inline SVG bar chart. Pure function: input data + labels,
- * output HTML string. Used by the usage dashboard for the time-pattern
- * charts. Bars are 16 px wide with 2 px gaps; height scales so the tallest
- * bar reaches `maxHeight`. Empty / all-zero input renders as flat bars.
+ * Render a responsive SVG bar chart that fills its container. Pure function.
+ *
+ * Bars are sized as a proportion of a normalized 100-unit viewBox so the SVG
+ * scales with whatever width the parent gives it via CSS. Bars use a "ghost"
+ * background so zero-value cells still show a visible track (better than a
+ * 1px hairline). The tallest bar fills the chart area; everything else scales
+ * proportionally.
  */
 export function renderBarChart(
   values: number[],
-  opts: { labelEvery: number; axisLabels: string[]; maxHeight?: number },
+  opts: { labelEvery: number; axisLabels: string[] },
 ): string {
+  const n = values.length;
+  if (n === 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 80"
+                  preserveAspectRatio="none" role="img"></svg>`;
+  }
   const max = values.reduce((m, v) => (v > m ? v : m), 0);
-  const barW = 16;
-  const gap = 2;
-  const maxH = opts.maxHeight ?? 50;
-  const width = Math.max(0, values.length * (barW + gap) - gap);
-  const totalH = maxH + 18; // room for the x-axis labels under the bars
-  const bars = values.map((v, i) => {
-    const h = max === 0 ? 1 : Math.max(1, Math.round((v / max) * maxH));
-    const x = i * (barW + gap);
-    const y = maxH - h;
-    return `<g><rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="#1b5e9c"><title>${v}</title></rect></g>`;
+  // viewBox: 100 wide, 100 tall — bars 0..85, labels 88..100.
+  const vbW = 100;
+  const chartH = 85;
+  const labelY = 96;
+  const gap = 0.18; // gap as fraction of slot width
+  const slot = vbW / n;
+  const barW = slot * (1 - gap);
+  const barOffset = (slot - barW) / 2;
+
+  const ghostBars = values.map((_, i) => {
+    const x = i * slot + barOffset;
+    return `<rect x="${x.toFixed(3)}" y="0" width="${barW.toFixed(3)}" height="${chartH}" fill="#f1f5f9" rx="0.6"></rect>`;
   }).join("");
+
+  const bars = values.map((v, i) => {
+    const h = max === 0 ? 0 : (v / max) * chartH;
+    const x = i * slot + barOffset;
+    const y = chartH - h;
+    return `<rect x="${x.toFixed(3)}" y="${y.toFixed(3)}" width="${barW.toFixed(3)}" height="${h.toFixed(3)}" fill="#0f4c75" rx="0.6"><title>${v}</title></rect>`;
+  }).join("");
+
   const labels = values.map((_, i) => {
     if (opts.labelEvery <= 0 || i % opts.labelEvery !== 0) return "";
-    const x = i * (barW + gap) + barW / 2;
+    const x = i * slot + slot / 2;
     const label = opts.axisLabels[i] ?? "";
-    return `<text x="${x}" y="${maxH + 14}" text-anchor="middle" font-size="10" fill="#888">${esc(label)}</text>`;
+    return `<text x="${x.toFixed(3)}" y="${labelY}" text-anchor="middle" font-size="4.5" fill="#94a3b8" font-family="-apple-system, 'Segoe UI', sans-serif">${esc(label)}</text>`;
   }).join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${totalH}" viewBox="0 0 ${width} ${totalH}" role="img">${bars}${labels}</svg>`;
+
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vbW} 100"
+                preserveAspectRatio="none" role="img" class="bar-chart">
+    ${ghostBars}
+    ${bars}
+    ${labels}
+  </svg>`;
 }
 
 export function renderLoginPage(opts: { errorMessage?: string }): string {
@@ -163,23 +187,32 @@ const STYLE = `
   form.create button { background:#0f4c75; color:#fff; border:none;
                        padding:6px 14px; border-radius:3px; cursor:pointer; }
 
-  .header { display:flex; align-items:center; gap:16px;
-            background:#fff; padding:10px 20px; border-radius:8px;
-            box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:20px; }
-  .header .brand { display:flex; align-items:center; text-decoration:none; }
-  .header .brand img { display:block; }
-  .header .page-title { font-size:15px; font-weight:600; color:#0f4c75;
-                        padding-left:16px; border-left:1px solid #e5e7eb; margin-left:4px; }
+  /* Top bar — logo + primary nav on the left, account on the right. */
+  .header { display:flex; align-items:center; gap:24px;
+            background:#fff; padding:12px 24px;
+            border-bottom:1px solid #e5e7eb;
+            box-shadow:0 1px 2px rgba(0,0,0,0.03);
+            margin:-24px -24px 0 -24px; /* let it span edge-to-edge over the body padding */ }
+  .header .brand { display:flex; align-items:center; text-decoration:none;
+                   padding-right:16px; border-right:1px solid #e5e7eb; }
+  .header .brand img { display:block; height:32px; }
+  .header .nav-links { display:flex; gap:4px; }
+  .header .nav-links a { color:#475569; text-decoration:none; font-weight:500;
+                         font-size:14px; padding:8px 14px; border-radius:6px;
+                         transition: background 0.15s ease, color 0.15s ease; }
+  .header .nav-links a:hover { background:#f1f5f9; color:#0f4c75; }
   .header .header-spacer { flex:1; }
-  .header .nav-links a { color:#374151; text-decoration:none; font-weight:500;
-                         font-size:13px; padding:6px 10px; border-radius:4px; }
-  .header .nav-links a:hover { background:#f3f4f6; color:#0f4c75; }
+  .header .header-user { font-size:13px; color:#6b7280; font-weight:500; }
   .header .logout-form { display:inline; margin:0; }
-  .header .logout-form button { background:#f9fafb; border:1px solid #e5e7eb;
-                                color:#374151; padding:6px 12px; border-radius:4px;
-                                font-size:13px; cursor:pointer; font-family:inherit; }
+  .header .logout-form button { background:transparent; border:1px solid #e5e7eb;
+                                color:#475569; padding:7px 14px; border-radius:6px;
+                                font-size:13px; cursor:pointer; font-family:inherit;
+                                font-weight:500; transition: all 0.15s ease; }
   .header .logout-form button:hover { background:#fef2f2; border-color:#fecaca; color:#c0392b; }
-  .header .header-user { font-size:12px; color:#6b7280; padding-left:8px; }
+
+  /* Page title bar — sits below the top nav, scoped to the current page. */
+  .page-title-bar { padding:20px 0 4px; margin:0 0 16px; }
+  .page-title-bar h1 { color:#0f1e2e; margin:0; font-size:24px; font-weight:700; letter-spacing:-0.01em; }
 `;
 
 
@@ -367,7 +400,11 @@ export function renderAuditView(
         <td><b>${esc(r.user)}</b></td>
         <td><span class="badge ${companyClass}">${esc(r.company)}</span></td>
         <td>
-          <div class="action">${esc(action)}${r.details ? ` <span class="detail">${esc(r.details)}</span>` : ""} <span class="raw" title="raw tool: ${esc(r.tool)}">·</span></div>
+          <div class="action">${esc(action)}${
+            r.details
+              ? ` <span class="detail">${esc(r.details)}</span>`
+              : ` <span class="detail-muted">${esc(r.tool)}</span>`
+          }</div>
         </td>
         <td class="num">${esc(fmtDuration(r.durationMs))}</td>
         <td>${resultCell}</td>
@@ -533,8 +570,11 @@ export function renderAuditView(
   .ok   { color:#1c6b1c; font-weight:700; }
   .fail { color:#c0392b; font-weight:700; }
   .raw  { color:#bbb; cursor:help; }
-  .action { font-weight:500; }
-  .detail { color:#0f4c75; font-weight:600; margin-left:4px; }
+  .action { font-weight:500; color:#0f1e2e; }
+  .detail { color:#0f4c75; font-weight:600; margin-left:4px;
+            font-variant-numeric: tabular-nums; }
+  .detail-muted { color:#94a3b8; font-weight:500; font-size:12px; margin-left:6px;
+                  font-family: ui-monospace, 'SF Mono', Consolas, monospace; }
   .badge.co-plumbing { background:#e0ecff; color:#0f4c75; }
   .badge.co-energy   { background:#e6f7e6; color:#1c6b1c; }
   .badge.co-other    { background:#eee;    color:#666; }
@@ -749,7 +789,7 @@ export function renderUsageView(
            box-shadow:0 1px 3px rgba(0,0,0,0.04); }
   .chart h3 { font-size:13px; color:#374151; margin:0 0 12px;
               font-weight:600; }
-  .chart svg { display:block; max-width:100%; height:auto; }
+  .chart svg { display:block; width:100%; height:160px; }
   table { background:#fff; border-radius:8px; overflow:hidden;
           border:1px solid #e5e7eb; box-shadow:none; }
   th { background:#f9fafb; color:#374151; font-size:11px;
@@ -765,8 +805,9 @@ export function renderUsageView(
            border:1px solid transparent; }
   .r-btn:hover { background:#f3f4f6; color:#0f4c75; }
   .r-btn.on { background:#eff6ff; color:#0f4c75; border-color:#bfdbfe; }
-  .custom-range { display:flex; align-items:center; gap:8px; margin-left:auto;
-                  font-size:12px; color:#374151; }
+  .custom-range { display:flex; align-items:center; gap:8px;
+                  font-size:12px; color:#374151;
+                  padding-left:12px; margin-left:8px; border-left:1px solid #e5e7eb; }
   .custom-range input[type=date] { padding:4px 6px; border:1px solid #d1d5db;
                                     border-radius:4px; font-size:12px; }
   .custom-range button { background:#0f4c75; color:#fff; border:none;
@@ -915,7 +956,7 @@ export function renderUserUsageView(opts: RenderUserUsageOpts): string {
   .chart { background:#fff; padding:18px; border-radius:8px;
            border:1px solid #e5e7eb; box-shadow:0 1px 3px rgba(0,0,0,0.04); }
   .chart h3 { font-size:13px; color:#374151; margin:0 0 12px; font-weight:600; }
-  .chart svg { display:block; max-width:100%; height:auto; }
+  .chart svg { display:block; width:100%; height:160px; }
   .detail { color:#0f4c75; font-weight:600; }
   .ok { color:#10b981; font-weight:700; }
   .fail { color:#ef4444; font-weight:700; }
@@ -926,8 +967,9 @@ export function renderUserUsageView(opts: RenderUserUsageOpts): string {
        text-transform:uppercase; letter-spacing:0.04em; }
   .section-head { font-size:14px; font-weight:600; color:#374151; margin:24px 0 10px; }
   .empty { color:#999; padding:24px; text-align:center; }
-  .custom-range { display:flex; align-items:center; gap:8px; margin-left:auto;
-                  font-size:12px; color:#374151; }
+  .custom-range { display:flex; align-items:center; gap:8px;
+                  font-size:12px; color:#374151;
+                  padding-left:12px; margin-left:8px; border-left:1px solid #e5e7eb; }
   .custom-range input[type=date] { padding:4px 6px; border:1px solid #d1d5db;
                                     border-radius:4px; font-size:12px; }
   .custom-range button { background:#0f4c75; color:#fff; border:none;

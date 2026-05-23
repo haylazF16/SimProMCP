@@ -19,13 +19,14 @@ function emptyStats(): UsageStats {
 }
 
 describe("renderBarChart", () => {
-  it("emits an <svg> with one <rect> per value", () => {
+  it("emits an <svg> with TWO <rect>s per value (ghost track + data bar)", () => {
     const html = renderBarChart([1, 2, 3, 0], { labelEvery: 1, axisLabels: ["a","b","c","d"] });
     expect(html).toContain("<svg");
-    expect((html.match(/<rect /g) ?? []).length).toBe(4);
+    // 2× per value: one ghost track (light gray) + one data bar (brand blue).
+    expect((html.match(/<rect /g) ?? []).length).toBe(8);
   });
 
-  it("includes the count as a hover title on each bar", () => {
+  it("includes the count as a hover title on each data bar", () => {
     const html = renderBarChart([7, 0, 5], { labelEvery: 1, axisLabels: ["x","y","z"] });
     expect(html).toContain("<title>7</title>");
     expect(html).toContain("<title>0</title>");
@@ -35,7 +36,8 @@ describe("renderBarChart", () => {
   it("renders all-zero input without dividing by zero", () => {
     const html = renderBarChart([0, 0, 0], { labelEvery: 1, axisLabels: ["a","b","c"] });
     expect(html).toContain("<svg");
-    expect((html.match(/<rect /g) ?? []).length).toBe(3);
+    // 2× per value: 3 ghost + 3 zero-height data bars.
+    expect((html.match(/<rect /g) ?? []).length).toBe(6);
   });
 
   it("places X-axis labels every Nth bar via labelEvery", () => {
