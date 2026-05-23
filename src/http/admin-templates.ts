@@ -285,6 +285,43 @@ function humanizeAction(tool: string): string {
   return `${verb} ${noun}`;
 }
 
+/**
+ * Produce a natural-language description from `humanizeAction(tool)` + the
+ * captured `details` string. Examples:
+ *   ("Viewed purchase order", "#1789")          → "Viewed purchase order #1789"
+ *   ("Searched jobs",        "q=\"amara\"")    → "Searched jobs for \"amara\""
+ *   ("Created customer",     "name=\"Acme\"")  → "Created customer Acme"
+ *   ("Searched jobs",        undefined)        → "Searched jobs"
+ *
+ * Falls back to "<verb> (<details>)" for combinations we don't recognise.
+ */
+function describeAction(tool: string, details: string | undefined): string {
+  const verb = humanizeAction(tool);
+  if (!details) return verb;
+
+  // ID-style prefix (#1234, possibly with extra key=value pairs after) — just append.
+  if (/^#\S+/.test(details)) {
+    return `${verb} ${details}`;
+  }
+
+  // Search-style: q="..." → "for "..."".
+  const qm = details.match(/q="([^"]*)"/);
+  if (qm) {
+    let s = `${verb} for "${qm[1]}"`;
+    // Surface follow-on filters (status=…, dateFrom=…) if present.
+    const rest = details.replace(/q="[^"]*"\s*/, "").trim();
+    if (rest) s += ` · ${rest}`;
+    return s;
+  }
+
+  // Create/Update-style: name="..." → just inline the name.
+  const nm = details.match(/name="([^"]*)"/);
+  if (nm) return `${verb} "${nm[1]}"`;
+
+  // Catch-all: append details in parens so it doesn't look like a typo.
+  return `${verb} (${details})`;
+}
+
 /** Render an ISO timestamp as "5 min ago" / "2h ago" / "3d ago". */
 function relativeTime(iso: string, nowMs: number): string {
   const t = Date.parse(iso);
@@ -379,6 +416,7 @@ export function renderAuditView(
       const absolute = new Date(r.ts).toLocaleString();
       const relative = relativeTime(r.ts, now);
       const action = humanizeAction(r.tool);
+      const description = describeAction(r.tool, r.details);
       const kind = actionKind(r.tool);
       const companyClass = r.company === "plumbing" ? "co-plumbing"
                          : r.company === "energy" ? "co-energy" : "co-other";
@@ -400,11 +438,7 @@ export function renderAuditView(
         <td><b>${esc(r.user)}</b></td>
         <td><span class="badge ${companyClass}">${esc(r.company)}</span></td>
         <td>
-          <div class="action">${esc(action)}${
-            r.details
-              ? ` <span class="detail">${esc(r.details)}</span>`
-              : ` <span class="detail-muted">${esc(r.tool)}</span>`
-          }</div>
+          <div class="action" title="${esc(r.tool)}">${esc(description)}</div>
         </td>
         <td class="num">${esc(fmtDuration(r.durationMs))}</td>
         <td>${resultCell}</td>
@@ -569,12 +603,8 @@ export function renderAuditView(
   .row-fail { background:#fdecea !important; }
   .ok   { color:#1c6b1c; font-weight:700; }
   .fail { color:#c0392b; font-weight:700; }
-  .raw  { color:#bbb; cursor:help; }
-  .action { font-weight:500; color:#0f1e2e; }
-  .detail { color:#0f4c75; font-weight:600; margin-left:4px;
-            font-variant-numeric: tabular-nums; }
-  .detail-muted { color:#94a3b8; font-weight:500; font-size:12px; margin-left:6px;
-                  font-family: ui-monospace, 'SF Mono', Consolas, monospace; }
+  .action { font-weight:500; color:#0f1e2e;
+            font-variant-numeric: tabular-nums; cursor: default; }
   .badge.co-plumbing { background:#e0ecff; color:#0f4c75; }
   .badge.co-energy   { background:#e6f7e6; color:#1c6b1c; }
   .badge.co-other    { background:#eee;    color:#666; }
@@ -618,7 +648,7 @@ ${summary}
     <th style="width:130px;">When</th>
     <th style="width:140px;">Who</th>
     <th style="width:100px;">Company</th>
-    <th>What they did</th>
+    <th>Description</th>
     <th style="width:80px;">Time</th>
     <th style="width:90px;">Result</th>
   </tr></thead>
