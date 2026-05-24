@@ -166,6 +166,43 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
       }),
   );
 
+  // ---- add_job_section ----
+  // Sections in Simpro are a sub-resource of a job — they can't be created
+  // in the same payload as the job itself (the v1.0 API rejects them on
+  // POST /jobs and PATCH /jobs/{id}). Each section must be POSTed separately
+  // to /jobs/{id}/sections/. Each section is bound to exactly one CostCenter.
+  registerTool(
+    server,
+    "simpro_add_job_section",
+    "Add a section (a cost-centre line) to an existing Simpro job. Required because sections cannot be added during simpro_create_job (the API rejects them). Each section binds to one CostCenter — look up IDs via simpro_list_cost_centres. Requires confirm=true.",
+    () => (
+    {
+      confirm: confirmSchema,
+      jobId: idSchema,
+      name: z.string().min(1).describe("Section name shown on the job (e.g. 'Commercial Maintenance')."),
+      costCenterId: z.union([z.number(), z.string()])
+        .describe("CostCenter ID — find via simpro_list_cost_centres."),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          Name: args.name,
+          CostCenter: { ID: args.costCenterId },
+        });
+        const path = ctx.client.companyPath(ENDPOINTS.jobSections(args.jobId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "POST", path, payload,
+          summary: `Add section "${args.name}" to job #${args.jobId} (CostCenter #${args.costCenterId})`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.post<Record<string, unknown>>(path, payload);
+        const sectionId = (resp as { ID?: number | string }).ID ?? "?";
+        return formatRecord(`Added section #${sectionId} to job #${args.jobId}.`, resp, resp, true);
+      }),
+  );
+
   // ---- 20. update ----
   registerTool(
     server,
