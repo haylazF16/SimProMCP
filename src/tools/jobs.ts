@@ -170,36 +170,103 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
   // Sections in Simpro are a sub-resource of a job — they can't be created
   // in the same payload as the job itself (the v1.0 API rejects them on
   // POST /jobs and PATCH /jobs/{id}). Each section must be POSTed separately
-  // to /jobs/{id}/sections/. Each section is bound to exactly one CostCenter.
+  // to /jobs/{id}/sections/, and cost-centre line items (which represent the
+  // section's billable work bucket) must then be POSTed to a SECOND
+  // sub-resource: /jobs/{id}/sections/{sid}/costCenters/. Simpro silently
+  // ignores a CostCenter field on the initial section create payload —
+  // that's why this tool does both calls.
   registerTool(
     server,
     "simpro_add_job_section",
-    "Add a section (a cost-centre line) to an existing Simpro job. Required because sections cannot be added during simpro_create_job (the API rejects them). Each section binds to one CostCenter — look up IDs via simpro_list_cost_centres. Requires confirm=true.",
+    "Add a section to an existing Simpro job, optionally with a cost-centre line item attached. Required because sections can't be added during simpro_create_job (Simpro rejects them). Pass costCenterId to also attach a cost-centre line item — this tool will then make TWO API calls (one to create the section, one to attach the cost-centre). If you only want the empty section, omit costCenterId. To attach a cost centre to an existing empty section instead, use simpro_add_section_cost_centre. Requires confirm=true.",
     () => (
     {
       confirm: confirmSchema,
       jobId: idSchema,
       name: z.string().min(1).describe("Section name shown on the job (e.g. 'Commercial Maintenance')."),
-      costCenterId: z.union([z.number(), z.string()])
-        .describe("CostCenter ID — find via simpro_list_cost_centres."),
+      costCenterId: z.union([z.number(), z.string()]).optional()
+        .describe("Optional CostCenter ID — find via simpro_list_cost_centres. When supplied, a cost-centre line item is added to the new section in a follow-up API call."),
+      rawPayload: rawPayloadSchema.describe("Raw payload override for the section CREATE call only. Does NOT affect the follow-up cost-centre attachment."),
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        // Step 1 — create the section.
+        const sectionPayload = args.rawPayload ?? pruneEmpty({ Name: args.name });
+        const sectionPath = ctx.client.companyPath(ENDPOINTS.jobSections(args.jobId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "POST", path: sectionPath, payload: sectionPayload,
+          summary: args.costCenterId !== undefined
+            ? `Add section "${args.name}" to job #${args.jobId} + attach CostCenter #${args.costCenterId} (2 API calls)`
+            : `Add empty section "${args.name}" to job #${args.jobId}`,
+        });
+        if (blocked) return blocked;
+        const sectionResp = await ctx.client.post<Record<string, unknown>>(sectionPath, sectionPayload);
+        const sectionId = (sectionResp as { ID?: number | string }).ID;
+        if (sectionId === undefined) {
+          return textResponse(
+            `Section created on job #${args.jobId} but Simpro didn't return its ID — can't attach cost centre. ` +
+            `Inspect the job and use simpro_add_section_cost_centre manually.`,
+            true,
+          );
+        }
+        // Step 2 — attach cost centre (only if requested).
+        if (args.costCenterId === undefined) {
+          return formatRecord(`Added empty section #${sectionId} to job #${args.jobId}.`, sectionResp, sectionResp, true);
+        }
+        const ccPath = ctx.client.companyPath(ENDPOINTS.jobSectionCostCenters(args.jobId, sectionId));
+        const ccPayload = { CostCentre: { ID: args.costCenterId } };
+        try {
+          const ccResp = await ctx.client.post<Record<string, unknown>>(ccPath, ccPayload);
+          const ccLineId = (ccResp as { ID?: number | string }).ID ?? "?";
+          return formatRecord(
+            `Added section #${sectionId} to job #${args.jobId} with CostCentre #${args.costCenterId} (line #${ccLineId}).`,
+            ccResp, { section: sectionResp, costCentre: ccResp }, true,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return textResponse(
+            `Section #${sectionId} created on job #${args.jobId}, but attaching CostCentre #${args.costCenterId} failed: ${msg}\n\n` +
+            `You can retry just the attachment via simpro_add_section_cost_centre with jobId=${args.jobId} sectionId=${sectionId} costCentreId=${args.costCenterId}.`,
+            true,
+          );
+        }
+      }),
+  );
+
+  // ---- add_section_cost_centre ----
+  // Standalone: attach a cost-centre line item to an existing job section.
+  // Use when a section already exists without a cost centre (e.g. created
+  // via the older 1-step version of simpro_add_job_section, or via Simpro UI).
+  registerTool(
+    server,
+    "simpro_add_section_cost_centre",
+    "Attach a cost-centre line item to an existing job section. Use when the section exists but is empty (no cost centre = no billable work bucket = can't raise PO against it). Get sectionId from simpro_get_job (look in the Sections array). Requires confirm=true.",
+    () => (
+    {
+      confirm: confirmSchema,
+      jobId: idSchema,
+      sectionId: idSchema,
+      costCentreId: z.union([z.number(), z.string()])
+        .describe("CostCentre ID — find via simpro_list_cost_centres."),
       rawPayload: rawPayloadSchema,
     }
     ),
     () => async (args) =>
       safeRun(async () => {
-        const payload = args.rawPayload ?? pruneEmpty({
-          Name: args.name,
-          CostCenter: { ID: args.costCenterId },
-        });
-        const path = ctx.client.companyPath(ENDPOINTS.jobSections(args.jobId));
+        const payload = args.rawPayload ?? { CostCentre: { ID: args.costCentreId } };
+        const path = ctx.client.companyPath(ENDPOINTS.jobSectionCostCenters(args.jobId, args.sectionId));
         const blocked = writeGuard(ctx, {
           confirm: args.confirm, method: "POST", path, payload,
-          summary: `Add section "${args.name}" to job #${args.jobId} (CostCenter #${args.costCenterId})`,
+          summary: `Attach CostCentre #${args.costCentreId} to section #${args.sectionId} of job #${args.jobId}`,
         });
         if (blocked) return blocked;
         const resp = await ctx.client.post<Record<string, unknown>>(path, payload);
-        const sectionId = (resp as { ID?: number | string }).ID ?? "?";
-        return formatRecord(`Added section #${sectionId} to job #${args.jobId}.`, resp, resp, true);
+        const lineId = (resp as { ID?: number | string }).ID ?? "?";
+        return formatRecord(
+          `Attached CostCentre #${args.costCentreId} to section #${args.sectionId} of job #${args.jobId} (line #${lineId}).`,
+          resp, resp, true,
+        );
       }),
   );
 
