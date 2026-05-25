@@ -506,6 +506,46 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       }),
   );
 
+  // ---- update_purchase_order_item ----
+  // Update an existing PO line item — typically used to correct quantity
+  // or unit price without the destructive "delete then re-add" cycle.
+  // Use simpro_list_purchase_order_items to find the catalogId (the line
+  // item's ID, distinct from the underlying part's catalog ID — Simpro
+  // overloads the term).
+  registerTool(
+    server,
+    "simpro_update_purchase_order_item",
+    "Update an existing line item on a Simpro purchase order (e.g. correct quantity or unit price). Only provided fields are sent. Requires confirm=true. Use simpro_list_purchase_order_items to find the catalogId.",
+    () => (
+    {
+      confirm: confirmSchema,
+      purchaseOrderId: idSchema,
+      catalogId: idSchema,
+      quantity: z.number().optional().describe("New quantity for this line item."),
+      price: z.number().optional().describe("Override unit price for this line item."),
+      description: z.string().optional().describe("Override the line description."),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          Quantity: args.quantity,
+          Price: args.price,
+          Description: args.description,
+        });
+        if (Object.keys(payload).length === 0) return textResponse("No fields to update.", true);
+        const path = ctx.client.companyPath(ENDPOINTS.vendorOrderItemById(args.purchaseOrderId, args.catalogId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "PATCH", path, payload,
+          summary: `Update PO #${args.purchaseOrderId} line item #${args.catalogId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.patch<Record<string, unknown>>(path, payload);
+        return formatRecord(`Updated PO #${args.purchaseOrderId} line item #${args.catalogId}.`, resp, resp, true);
+      }),
+  );
+
   // ---- search vendor receipts (supplier invoices) ----
   registerTool(
     server,
