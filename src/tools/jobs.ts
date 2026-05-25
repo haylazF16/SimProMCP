@@ -355,6 +355,44 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
       }),
   );
 
+  // ---- update_job_section ----
+  // Sections live as a sub-resource of jobs; this tool renames or otherwise
+  // updates an existing section after creation. Cost-centre line items on a
+  // section are managed via simpro_add_section_cost_centre / future delete
+  // tool — NOT through this PATCH (which only mutates the section's own
+  // fields like Name and Description).
+  registerTool(
+    server,
+    "simpro_update_job_section",
+    "Update an existing section on a Simpro job (e.g. rename it). Only provided fields are sent. Requires confirm=true. Use simpro_list_job_sections to find the sectionId. For cost-centre line items use simpro_add_section_cost_centre.",
+    () => (
+    {
+      confirm: confirmSchema,
+      jobId: idSchema,
+      sectionId: idSchema,
+      name: z.string().optional().describe("New section name."),
+      description: z.string().optional().describe("New section description / notes."),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          Name: args.name,
+          Description: args.description,
+        });
+        if (Object.keys(payload).length === 0) return textResponse("No fields to update.", true);
+        const path = ctx.client.companyPath(ENDPOINTS.jobSectionById(args.jobId, args.sectionId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "PATCH", path, payload,
+          summary: `Update section #${args.sectionId} of job #${args.jobId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.patch<Record<string, unknown>>(path, payload);
+        return formatRecord(`Updated section #${args.sectionId} of job #${args.jobId}.`, resp, resp, true);
+      }),
+  );
+
   // ---- 23. list job statuses (sampled) ----
   // This Simpro tenant doesn't expose a /setup/.../statuses endpoint.
   // We sample recent jobs (which always include {ID, Name, Color} for Status)
