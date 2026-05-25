@@ -468,6 +468,8 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   // Update the header fields of an existing PO — reference, dates, notes,
   // status. Line items on the PO are managed via
   // simpro_add_purchase_order_item / simpro_update_purchase_order_item.
+  // NOTE: Simpro uses VendorNotes (printed on PO, visible to supplier) and
+  // PrivateNotes (internal only) — NOT a generic "Notes" field.
   registerTool(
     server,
     "simpro_update_purchase_order",
@@ -477,11 +479,14 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       confirm: confirmSchema,
       purchaseOrderId: idSchema,
       reference: z.string().optional().describe("Free-text reference / PO number printed on the document."),
-      notes: z.string().optional().describe("Internal notes attached to the PO."),
+      vendorNotes: z.string().optional()
+        .describe("Notes visible to the supplier (printed on the PO document). HTML accepted."),
+      privateNotes: z.string().optional()
+        .describe("Internal notes — not visible to the supplier."),
       dateIssued: isoDateSchema,
       dateRequired: isoDateSchema,
-      status: z.union([z.number(), z.string()]).optional()
-        .describe("PO status ID — Simpro's open/sent/complete lifecycle."),
+      status: z.number().int().optional()
+        .describe("PO status as a numeric ID (e.g. use simpro_get_purchase_order to see current Status.ID)."),
       rawPayload: rawPayloadSchema,
     }
     ),
@@ -489,7 +494,8 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
           Reference: args.reference,
-          Notes: args.notes,
+          VendorNotes: args.vendorNotes,
+          PrivateNotes: args.privateNotes,
           DateIssued: args.dateIssued,
           DateRequired: args.dateRequired,
           Status: args.status !== undefined ? { ID: args.status } : undefined,
@@ -509,9 +515,11 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
   // ---- update_purchase_order_item ----
   // Update an existing PO line item — typically used to correct quantity
   // or unit price without the destructive "delete then re-add" cycle.
-  // Use simpro_list_purchase_order_items to find the catalogId (the line
-  // item's ID, distinct from the underlying part's catalog ID — Simpro
-  // overloads the term).
+  // Use simpro_list_purchase_order_items to find the catalogId.
+  // NOTE: Simpro stores quantity inside an Allocations array (same shape as
+  // the POST create endpoint). Quantity is wrapped in Allocations[0] here to
+  // match that shape. If the PATCH endpoint accepts flat Quantity at root,
+  // use rawPayload: { Quantity: n } as a workaround.
   registerTool(
     server,
     "simpro_update_purchase_order_item",
@@ -521,19 +529,25 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       confirm: confirmSchema,
       purchaseOrderId: idSchema,
       catalogId: idSchema,
-      quantity: z.number().optional().describe("New quantity for this line item."),
-      price: z.number().optional().describe("Override unit price for this line item."),
+      quantity: z.number().int().positive().optional().describe("New quantity for this line item (positive integer)."),
+      price: z.number().nonnegative().optional().describe("Override unit price for this line item (must be ≥ 0)."),
       description: z.string().optional().describe("Override the line description."),
       rawPayload: rawPayloadSchema,
     }
     ),
     () => async (args) =>
       safeRun(async () => {
-        const payload = args.rawPayload ?? pruneEmpty({
-          Quantity: args.quantity,
+        // Quantity lives inside Allocations[] — same nested shape as the POST
+        // create endpoint. Price and Description are root-level fields.
+        const baseFields = pruneEmpty({
           Price: args.price,
           Description: args.description,
         });
+        const payload = args.rawPayload ?? (
+          args.quantity !== undefined
+            ? { ...baseFields, Allocations: [{ Quantity: args.quantity }] }
+            : baseFields
+        );
         if (Object.keys(payload).length === 0) return textResponse("No fields to update.", true);
         const path = ctx.client.companyPath(ENDPOINTS.vendorOrderItemById(args.purchaseOrderId, args.catalogId));
         const blocked = writeGuard(ctx, {

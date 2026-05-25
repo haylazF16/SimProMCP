@@ -22,5 +22,11 @@ export const addressSchema = z.object({
 
 export const rawFlagSchema = z.boolean().optional().describe("If true, include the raw Simpro JSON response.");
 
-export const isoDateSchema = z.string().optional()
-  .describe("ISO date string (YYYY-MM-DD) or ISO datetime.");
+export const isoDateSchema = z
+  .string()
+  .regex(
+    /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/,
+    "Must be ISO date (YYYY-MM-DD) or ISO datetime (YYYY-MM-DDTHH:MM:SSZ)",
+  )
+  .optional()
+  .describe("ISO date (YYYY-MM-DD) or ISO datetime (YYYY-MM-DDTHH:MM:SSZ).");
