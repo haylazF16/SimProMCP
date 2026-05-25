@@ -15,17 +15,101 @@
       "description": "Company and individual customers that jobs, quotes, and invoices are raised against.",
       "notes": "Simpro uses typed sub-paths: /customers/companies/{id} for company customers and /customers/individuals/{id} for individual customers. The bare /customers/{id} returns 404.",
       "endpoints": [
-        { "method": "GET", "path": "/customers/", "description": "Search/list all customers (both company and individual types)", "inferred": true },
-        { "method": "GET", "path": "/customers/companies/", "description": "List company-type customers only", "inferred": true },
-        { "method": "GET", "path": "/customers/companies/{customerId}", "description": "Get a company customer by ID", "inferred": true },
-        { "method": "POST", "path": "/customers/companies/", "description": "Create a new company customer", "inferred": true },
-        { "method": "PATCH", "path": "/customers/companies/{customerId}", "description": "Update a company customer (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/customers/companies/{customerId}", "description": "Delete a company customer", "inferred": true },
-        { "method": "GET", "path": "/customers/individuals/", "description": "List individual-type customers only", "inferred": true },
-        { "method": "GET", "path": "/customers/individuals/{customerId}", "description": "Get an individual customer by ID", "inferred": true },
-        { "method": "POST", "path": "/customers/individuals/", "description": "Create a new individual customer", "inferred": true },
-        { "method": "PATCH", "path": "/customers/individuals/{customerId}", "description": "Update an individual customer (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/customers/individuals/{customerId}", "description": "Delete an individual customer", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/customers/",
+          "description": "Search/list all customers (both company and individual types)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_customers"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/customers/companies/",
+          "description": "List company-type customers only",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "GET",
+          "path": "/customers/companies/{customerId}",
+          "description": "Get a company customer by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_customer"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/customers/companies/",
+          "description": "Create a new company customer",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_create_customer"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/customers/companies/{customerId}",
+          "description": "Update a company customer (partial update)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_update_customer"
+          ]
+        },
+        {
+          "method": "DELETE",
+          "path": "/customers/companies/{customerId}",
+          "description": "Delete a company customer",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "GET",
+          "path": "/customers/individuals/",
+          "description": "List individual-type customers only",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "GET",
+          "path": "/customers/individuals/{customerId}",
+          "description": "Get an individual customer by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_customer"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/customers/individuals/",
+          "description": "Create a new individual customer",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_create_customer"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/customers/individuals/{customerId}",
+          "description": "Update an individual customer (partial update)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_update_customer"
+          ]
+        },
+        {
+          "method": "DELETE",
+          "path": "/customers/individuals/{customerId}",
+          "description": "Delete an individual customer",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -33,11 +117,50 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/sites/",
       "description": "Physical service locations / job sites associated with customers.",
       "endpoints": [
-        { "method": "GET", "path": "/sites/", "description": "Search/list all sites", "inferred": true },
-        { "method": "GET", "path": "/sites/{siteId}", "description": "Get a site by ID", "inferred": true },
-        { "method": "POST", "path": "/sites/", "description": "Create a new site", "inferred": true },
-        { "method": "PATCH", "path": "/sites/{siteId}", "description": "Update a site (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/sites/{siteId}", "description": "Delete a site", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/sites/",
+          "description": "Search/list all sites",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_sites"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/sites/{siteId}",
+          "description": "Get a site by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_site"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/sites/",
+          "description": "Create a new site",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_create_site"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/sites/{siteId}",
+          "description": "Update a site (partial update)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_update_site"
+          ]
+        },
+        {
+          "method": "DELETE",
+          "path": "/sites/{siteId}",
+          "description": "Delete a site",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -45,11 +168,48 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/contacts/",
       "description": "Individual people (contacts) linked to customers or sites — name, email, phone, position.",
       "endpoints": [
-        { "method": "GET", "path": "/contacts/", "description": "Search/list contacts", "inferred": true },
-        { "method": "GET", "path": "/contacts/{contactId}", "description": "Get a contact by ID", "inferred": true },
-        { "method": "POST", "path": "/contacts/", "description": "Create a new contact", "inferred": true },
-        { "method": "PATCH", "path": "/contacts/{contactId}", "description": "Update a contact (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/contacts/{contactId}", "description": "Delete a contact", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/contacts/",
+          "description": "Search/list contacts",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_contacts"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/contacts/{contactId}",
+          "description": "Get a contact by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_contact"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/contacts/",
+          "description": "Create a new contact",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "H"
+        },
+        {
+          "method": "PATCH",
+          "path": "/contacts/{contactId}",
+          "description": "Update a contact (partial update)",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "H"
+        },
+        {
+          "method": "DELETE",
+          "path": "/contacts/{contactId}",
+          "description": "Delete a contact",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -58,23 +218,152 @@
       "description": "Service and project jobs assigned to customers and sites — the primary work unit in Simpro.",
       "notes": "Sections and CostCenters are mandatory sub-resources: a job must have at least one section, and each section at least one CostCenter line item, before a purchase order can be raised against it. Sections and CostCenters cannot be created in the same payload as the job (Simpro rejects them on POST/PATCH /jobs); they must be POSTed separately. Notes are also a sub-resource.",
       "endpoints": [
-        { "method": "GET", "path": "/jobs/", "description": "Search/list jobs (supports columns, orderby, and pagination query params)", "inferred": true },
-        { "method": "GET", "path": "/jobs/{jobId}", "description": "Get full detail of a job by ID", "inferred": true },
-        { "method": "POST", "path": "/jobs/", "description": "Create a new job", "inferred": true },
-        { "method": "PATCH", "path": "/jobs/{jobId}", "description": "Update a job (partial update — status, description, dueDate, assignedStaff)", "inferred": true },
-        { "method": "DELETE", "path": "/jobs/{jobId}", "description": "Delete a job", "inferred": true },
-        { "method": "GET", "path": "/jobs/{jobId}/sections/", "description": "List all sections on a job (sections are a separate sub-resource not returned in GET /jobs/{jobId})", "inferred": true },
-        { "method": "POST", "path": "/jobs/{jobId}/sections/", "description": "Add a new section to an existing job", "inferred": true },
-        { "method": "GET", "path": "/jobs/{jobId}/sections/{sectionId}", "description": "Get a specific section on a job by section ID", "inferred": true },
-        { "method": "PATCH", "path": "/jobs/{jobId}/sections/{sectionId}", "description": "Update a job section", "inferred": true },
-        { "method": "DELETE", "path": "/jobs/{jobId}/sections/{sectionId}", "description": "Delete a job section", "inferred": true },
-        { "method": "GET", "path": "/jobs/{jobId}/sections/{sectionId}/costCenters/", "description": "List cost-centre line items attached to a job section", "inferred": true },
-        { "method": "POST", "path": "/jobs/{jobId}/sections/{sectionId}/costCenters/", "description": "Attach a cost-centre line item to a job section (requires CostCentre.ID in body)", "inferred": true },
-        { "method": "GET", "path": "/jobs/{jobId}/sections/{sectionId}/costCenters/{costCenterId}", "description": "Get a specific cost-centre line item on a job section", "inferred": true },
-        { "method": "DELETE", "path": "/jobs/{jobId}/sections/{sectionId}/costCenters/{costCenterId}", "description": "Remove a cost-centre line item from a job section", "inferred": true },
-        { "method": "GET", "path": "/jobs/{jobId}/notes/", "description": "List notes on a job", "inferred": true },
-        { "method": "POST", "path": "/jobs/{jobId}/notes/", "description": "Add a note to a job (Note + optional Visibility in body)", "inferred": true },
-        { "method": "GET", "path": "/jobs/{jobId}/notes/{noteId}", "description": "Get a specific job note by ID", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/jobs/",
+          "description": "Search/list jobs (supports columns, orderby, and pagination query params)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_jobs"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/jobs/{jobId}",
+          "description": "Get full detail of a job by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_job"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/jobs/",
+          "description": "Create a new job",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_create_job"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/jobs/{jobId}",
+          "description": "Update a job (partial update — status, description, dueDate, assignedStaff)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_update_job"
+          ]
+        },
+        {
+          "method": "DELETE",
+          "path": "/jobs/{jobId}",
+          "description": "Delete a job",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "GET",
+          "path": "/jobs/{jobId}/sections/",
+          "description": "List all sections on a job (sections are a separate sub-resource not returned in GET /jobs/{jobId})",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_list_job_sections"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/jobs/{jobId}/sections/",
+          "description": "Add a new section to an existing job",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_add_job_section"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/jobs/{jobId}/sections/{sectionId}",
+          "description": "Get a specific section on a job by section ID",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "PATCH",
+          "path": "/jobs/{jobId}/sections/{sectionId}",
+          "description": "Update a job section",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "H"
+        },
+        {
+          "method": "DELETE",
+          "path": "/jobs/{jobId}/sections/{sectionId}",
+          "description": "Delete a job section",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "GET",
+          "path": "/jobs/{jobId}/sections/{sectionId}/costCenters/",
+          "description": "List cost-centre line items attached to a job section",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "POST",
+          "path": "/jobs/{jobId}/sections/{sectionId}/costCenters/",
+          "description": "Attach a cost-centre line item to a job section (requires CostCentre.ID in body)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_add_job_section",
+            "simpro_add_section_cost_centre"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/jobs/{jobId}/sections/{sectionId}/costCenters/{costCenterId}",
+          "description": "Get a specific cost-centre line item on a job section",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "DELETE",
+          "path": "/jobs/{jobId}/sections/{sectionId}/costCenters/{costCenterId}",
+          "description": "Remove a cost-centre line item from a job section",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "GET",
+          "path": "/jobs/{jobId}/notes/",
+          "description": "List notes on a job",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "POST",
+          "path": "/jobs/{jobId}/notes/",
+          "description": "Add a note to a job (Note + optional Visibility in body)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_add_job_note",
+            "simpro_attach_file_link_to_job"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/jobs/{jobId}/notes/{noteId}",
+          "description": "Get a specific job note by ID",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        }
       ]
     },
     {
@@ -82,11 +371,50 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/quotes/",
       "description": "Customer quotations (estimates) that can be converted to jobs once approved.",
       "endpoints": [
-        { "method": "GET", "path": "/quotes/", "description": "Search/list quotes", "inferred": true },
-        { "method": "GET", "path": "/quotes/{quoteId}", "description": "Get full detail of a quote by ID", "inferred": true },
-        { "method": "POST", "path": "/quotes/", "description": "Create a new quote", "inferred": true },
-        { "method": "PATCH", "path": "/quotes/{quoteId}", "description": "Update a quote (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/quotes/{quoteId}", "description": "Delete a quote", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/quotes/",
+          "description": "Search/list quotes",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_quotes"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/quotes/{quoteId}",
+          "description": "Get full detail of a quote by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_quote"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/quotes/",
+          "description": "Create a new quote",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_create_quote"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/quotes/{quoteId}",
+          "description": "Update a quote (partial update)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_update_quote"
+          ]
+        },
+        {
+          "method": "DELETE",
+          "path": "/quotes/{quoteId}",
+          "description": "Delete a quote",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -94,11 +422,48 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/invoices/",
       "description": "Customer-facing invoices generated from completed jobs or quotes.",
       "endpoints": [
-        { "method": "GET", "path": "/invoices/", "description": "Search/list invoices", "inferred": true },
-        { "method": "GET", "path": "/invoices/{invoiceId}", "description": "Get full detail of an invoice by ID", "inferred": true },
-        { "method": "POST", "path": "/invoices/", "description": "Create a new invoice", "inferred": true },
-        { "method": "PATCH", "path": "/invoices/{invoiceId}", "description": "Update an invoice (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/invoices/{invoiceId}", "description": "Delete an invoice", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/invoices/",
+          "description": "Search/list invoices",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_invoices"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/invoices/{invoiceId}",
+          "description": "Get full detail of an invoice by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_invoice"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/invoices/",
+          "description": "Create a new invoice",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "H"
+        },
+        {
+          "method": "PATCH",
+          "path": "/invoices/{invoiceId}",
+          "description": "Update an invoice (partial update)",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "H"
+        },
+        {
+          "method": "DELETE",
+          "path": "/invoices/{invoiceId}",
+          "description": "Delete an invoice",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -106,11 +471,48 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/tasks/",
       "description": "Internal to-do / action items assigned to staff, optionally linked to a job or quote.",
       "endpoints": [
-        { "method": "GET", "path": "/tasks/", "description": "Search/list tasks", "inferred": true },
-        { "method": "GET", "path": "/tasks/{taskId}", "description": "Get a task by ID", "inferred": true },
-        { "method": "POST", "path": "/tasks/", "description": "Create a new task", "inferred": true },
-        { "method": "PATCH", "path": "/tasks/{taskId}", "description": "Update a task (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/tasks/{taskId}", "description": "Delete a task", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/tasks/",
+          "description": "Search/list tasks",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "GET",
+          "path": "/tasks/{taskId}",
+          "description": "Get a task by ID",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "POST",
+          "path": "/tasks/",
+          "description": "Create a new task",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_create_task"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/tasks/{taskId}",
+          "description": "Update a task (partial update)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_update_task"
+          ]
+        },
+        {
+          "method": "DELETE",
+          "path": "/tasks/{taskId}",
+          "description": "Delete a task",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -118,11 +520,50 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/vendors/",
       "description": "Suppliers / vendors that purchase orders and supplier invoices are raised against. API path is /vendors/ though the business term is 'suppliers'.",
       "endpoints": [
-        { "method": "GET", "path": "/vendors/", "description": "Search/list suppliers (filter by Name with %wildcards%)", "inferred": true },
-        { "method": "GET", "path": "/vendors/{vendorId}", "description": "Get full detail of a supplier by ID", "inferred": true },
-        { "method": "POST", "path": "/vendors/", "description": "Create a new supplier", "inferred": true },
-        { "method": "PATCH", "path": "/vendors/{vendorId}", "description": "Update a supplier (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/vendors/{vendorId}", "description": "Delete/archive a supplier", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/vendors/",
+          "description": "Search/list suppliers (filter by Name with %wildcards%)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_suppliers"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/vendors/{vendorId}",
+          "description": "Get full detail of a supplier by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_supplier"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/vendors/",
+          "description": "Create a new supplier",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_create_supplier"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/vendors/{vendorId}",
+          "description": "Update a supplier (partial update)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_update_supplier"
+          ]
+        },
+        {
+          "method": "DELETE",
+          "path": "/vendors/{vendorId}",
+          "description": "Delete/archive a supplier",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -131,18 +572,109 @@
       "description": "Purchase orders raised to suppliers, attached to a job's cost centre for cost roll-up. API path is /vendorOrders/.",
       "notes": "Line items (catalog items) live at /vendorOrders/{id}/catalogs/ — NOT /vendorOrders/{id}/items/. Supplier invoices (receipts) against a PO live at /vendorOrders/{id}/receipts/. The POST payload for PO creation uses plain integers for Vendor/StorageDevice/AssignedTo (not nested {ID:...} objects).",
       "endpoints": [
-        { "method": "GET", "path": "/vendorOrders/", "description": "Search/list purchase orders (filter by Vendor.ID, Stage, DateIssued range, Reference)", "inferred": true },
-        { "method": "GET", "path": "/vendorOrders/{orderId}", "description": "Get full detail of a purchase order by ID", "inferred": true },
-        { "method": "POST", "path": "/vendorOrders/", "description": "Create a new purchase order (requires Vendor, StorageDevice, AssignedTo as plain integers)", "inferred": true },
-        { "method": "PATCH", "path": "/vendorOrders/{orderId}", "description": "Update a purchase order (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/vendorOrders/{orderId}", "description": "Delete a purchase order", "inferred": true },
-        { "method": "GET", "path": "/vendorOrders/{orderId}/catalogs/", "description": "List line items (catalog items) on a purchase order", "inferred": true },
-        { "method": "POST", "path": "/vendorOrders/{orderId}/catalogs/", "description": "Add a catalog line item to a purchase order (body: Catalog int, Price, Allocations[{Quantity}])", "inferred": true },
-        { "method": "GET", "path": "/vendorOrders/{orderId}/catalogs/{catalogId}", "description": "Get a specific PO line item including quantity ordered/received via Allocations array", "inferred": true },
-        { "method": "PATCH", "path": "/vendorOrders/{orderId}/catalogs/{catalogId}", "description": "Update a PO line item (e.g. change quantity or price)", "inferred": true },
-        { "method": "DELETE", "path": "/vendorOrders/{orderId}/catalogs/{catalogId}", "description": "Remove a line item from a purchase order", "inferred": true },
-        { "method": "GET", "path": "/vendorOrders/{orderId}/receipts/", "description": "List supplier invoices (receipts) received against this purchase order", "inferred": true },
-        { "method": "GET", "path": "/vendorOrders/{orderId}/receipts/{receiptId}", "description": "Get a specific supplier invoice nested under its parent purchase order", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/vendorOrders/",
+          "description": "Search/list purchase orders (filter by Vendor.ID, Stage, DateIssued range, Reference)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_purchase_orders"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/vendorOrders/{orderId}",
+          "description": "Get full detail of a purchase order by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_purchase_order"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/vendorOrders/",
+          "description": "Create a new purchase order (requires Vendor, StorageDevice, AssignedTo as plain integers)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_create_purchase_order"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/vendorOrders/{orderId}",
+          "description": "Update a purchase order (partial update)",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "H"
+        },
+        {
+          "method": "DELETE",
+          "path": "/vendorOrders/{orderId}",
+          "description": "Delete a purchase order",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "GET",
+          "path": "/vendorOrders/{orderId}/catalogs/",
+          "description": "List line items (catalog items) on a purchase order",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_list_purchase_order_items"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/vendorOrders/{orderId}/catalogs/",
+          "description": "Add a catalog line item to a purchase order (body: Catalog int, Price, Allocations[{Quantity}])",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_add_purchase_order_item"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/vendorOrders/{orderId}/catalogs/{catalogId}",
+          "description": "Get a specific PO line item including quantity ordered/received via Allocations array",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_purchase_order_item"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/vendorOrders/{orderId}/catalogs/{catalogId}",
+          "description": "Update a PO line item (e.g. change quantity or price)",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "H"
+        },
+        {
+          "method": "DELETE",
+          "path": "/vendorOrders/{orderId}/catalogs/{catalogId}",
+          "description": "Remove a line item from a purchase order",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "GET",
+          "path": "/vendorOrders/{orderId}/receipts/",
+          "description": "List supplier invoices (receipts) received against this purchase order",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "GET",
+          "path": "/vendorOrders/{orderId}/receipts/{receiptId}",
+          "description": "Get a specific supplier invoice nested under its parent purchase order",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_supplier_invoice"
+          ]
+        }
       ]
     },
     {
@@ -151,10 +683,42 @@
       "description": "Bills / invoices received from suppliers against purchase orders. API path is /vendorReceipts/ for list/search; detail GETs are nested under /vendorOrders/{orderId}/receipts/{receiptId}.",
       "notes": "The bare /vendorReceipts/{id} returns 404. Detail must be fetched via the nested path under vendorOrders. Line items live at /vendorOrders/{orderId}/receipts/{receiptId}/catalogs/.",
       "endpoints": [
-        { "method": "GET", "path": "/vendorReceipts/", "description": "Search/list all supplier invoices (use ?ID=<id> to discover parent orderId)", "inferred": true },
-        { "method": "GET", "path": "/vendorOrders/{orderId}/receipts/{receiptId}", "description": "Get full detail of a supplier invoice — must use nested path (bare /vendorReceipts/{id} returns 404)", "inferred": true },
-        { "method": "GET", "path": "/vendorOrders/{orderId}/receipts/{receiptId}/catalogs/", "description": "List line items on a supplier invoice", "inferred": true },
-        { "method": "GET", "path": "/vendorOrders/{orderId}/receipts/{receiptId}/catalogs/{catalogId}", "description": "Get a specific line item on a supplier invoice", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/vendorReceipts/",
+          "description": "Search/list all supplier invoices (use ?ID=<id> to discover parent orderId)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_supplier_invoice",
+            "simpro_search_supplier_invoices"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/vendorOrders/{orderId}/receipts/{receiptId}",
+          "description": "Get full detail of a supplier invoice — must use nested path (bare /vendorReceipts/{id} returns 404)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_supplier_invoice"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/vendorOrders/{orderId}/receipts/{receiptId}/catalogs/",
+          "description": "List line items on a supplier invoice",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_list_supplier_invoice_items"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/vendorOrders/{orderId}/receipts/{receiptId}/catalogs/{catalogId}",
+          "description": "Get a specific line item on a supplier invoice",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        }
       ]
     },
     {
@@ -162,11 +726,49 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/catalogs/",
       "description": "Parts / materials catalog — every orderable item with pricing, part numbers, and inventory settings. Goldman Plumbing has hundreds of thousands of entries.",
       "endpoints": [
-        { "method": "GET", "path": "/catalogs/", "description": "Search/list catalog items (filter by Name or PartNo with %wildcards%)", "inferred": true },
-        { "method": "GET", "path": "/catalogs/{catalogId}", "description": "Get full detail of a catalog item by ID", "inferred": true },
-        { "method": "POST", "path": "/catalogs/", "description": "Create a new catalog item (only Name required; PartNo, TradePrice, Group etc. optional)", "inferred": true },
-        { "method": "PATCH", "path": "/catalogs/{catalogId}", "description": "Update a catalog item (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/catalogs/{catalogId}", "description": "Delete a catalog item", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/catalogs/",
+          "description": "Search/list catalog items (filter by Name or PartNo with %wildcards%)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_catalog"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/catalogs/{catalogId}",
+          "description": "Get full detail of a catalog item by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_catalog_item"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/catalogs/",
+          "description": "Create a new catalog item (only Name required; PartNo, TradePrice, Group etc. optional)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_create_catalog_item"
+          ]
+        },
+        {
+          "method": "PATCH",
+          "path": "/catalogs/{catalogId}",
+          "description": "Update a catalog item (partial update)",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "DELETE",
+          "path": "/catalogs/{catalogId}",
+          "description": "Delete a catalog item",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -174,11 +776,48 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/storageDevices/",
       "description": "Physical storage locations for inventory — warehouses, trucks, service vehicles. Used on purchase orders to specify where goods will be received.",
       "endpoints": [
-        { "method": "GET", "path": "/storageDevices/", "description": "Search/list storage devices (filter by Name)", "inferred": true },
-        { "method": "GET", "path": "/storageDevices/{storageDeviceId}", "description": "Get full detail of a storage device by ID", "inferred": true },
-        { "method": "POST", "path": "/storageDevices/", "description": "Create a new storage device", "inferred": true },
-        { "method": "PATCH", "path": "/storageDevices/{storageDeviceId}", "description": "Update a storage device", "inferred": true },
-        { "method": "DELETE", "path": "/storageDevices/{storageDeviceId}", "description": "Delete a storage device", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/storageDevices/",
+          "description": "Search/list storage devices (filter by Name)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_storage_devices"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/storageDevices/{storageDeviceId}",
+          "description": "Get full detail of a storage device by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_storage_device"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/storageDevices/",
+          "description": "Create a new storage device",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "PATCH",
+          "path": "/storageDevices/{storageDeviceId}",
+          "description": "Update a storage device",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "DELETE",
+          "path": "/storageDevices/{storageDeviceId}",
+          "description": "Delete a storage device",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -186,11 +825,48 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/stockTakes/",
       "description": "Periodic inventory count records for storage devices, tracking stock value adjustments.",
       "endpoints": [
-        { "method": "GET", "path": "/stockTakes/", "description": "Search/list stocktakes (filter by StorageDevice.ID)", "inferred": true },
-        { "method": "GET", "path": "/stockTakes/{stockTakeId}", "description": "Get full detail of a stocktake by ID including items and value adjustments", "inferred": true },
-        { "method": "POST", "path": "/stockTakes/", "description": "Create a new stocktake", "inferred": true },
-        { "method": "PATCH", "path": "/stockTakes/{stockTakeId}", "description": "Update/approve a stocktake", "inferred": true },
-        { "method": "DELETE", "path": "/stockTakes/{stockTakeId}", "description": "Delete a stocktake", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/stockTakes/",
+          "description": "Search/list stocktakes (filter by StorageDevice.ID)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_stock_takes"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/stockTakes/{stockTakeId}",
+          "description": "Get full detail of a stocktake by ID including items and value adjustments",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_stock_take"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/stockTakes/",
+          "description": "Create a new stocktake",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "PATCH",
+          "path": "/stockTakes/{stockTakeId}",
+          "description": "Update/approve a stocktake",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "DELETE",
+          "path": "/stockTakes/{stockTakeId}",
+          "description": "Delete a stocktake",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -198,11 +874,48 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/leads/",
       "description": "Sales leads / CRM opportunities that can be converted to quotes or jobs.",
       "endpoints": [
-        { "method": "GET", "path": "/leads/", "description": "Search/list leads (filter by Customer.ID, Description keyword)", "inferred": true },
-        { "method": "GET", "path": "/leads/{leadId}", "description": "Get full detail of a lead by ID", "inferred": true },
-        { "method": "POST", "path": "/leads/", "description": "Create a new lead", "inferred": true },
-        { "method": "PATCH", "path": "/leads/{leadId}", "description": "Update a lead (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/leads/{leadId}", "description": "Delete a lead", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/leads/",
+          "description": "Search/list leads (filter by Customer.ID, Description keyword)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_leads"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/leads/{leadId}",
+          "description": "Get full detail of a lead by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_lead"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/leads/",
+          "description": "Create a new lead",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "PATCH",
+          "path": "/leads/{leadId}",
+          "description": "Update a lead (partial update)",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "DELETE",
+          "path": "/leads/{leadId}",
+          "description": "Delete a lead",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -210,10 +923,39 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/customerPayments/",
       "description": "Records of money received from customers against invoices, including payment method and account details.",
       "endpoints": [
-        { "method": "GET", "path": "/customerPayments/", "description": "Search/list customer payments (filter by Customer.ID, DateFrom/DateTo)", "inferred": true },
-        { "method": "GET", "path": "/customerPayments/{paymentId}", "description": "Get a specific customer payment by ID", "inferred": true },
-        { "method": "POST", "path": "/customerPayments/", "description": "Record a new customer payment", "inferred": true },
-        { "method": "DELETE", "path": "/customerPayments/{paymentId}", "description": "Delete/reverse a customer payment", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/customerPayments/",
+          "description": "Search/list customer payments (filter by Customer.ID, DateFrom/DateTo)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_customer_payments"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/customerPayments/{paymentId}",
+          "description": "Get a specific customer payment by ID",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "POST",
+          "path": "/customerPayments/",
+          "description": "Record a new customer payment",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "H"
+        },
+        {
+          "method": "DELETE",
+          "path": "/customerPayments/{paymentId}",
+          "description": "Delete/reverse a customer payment",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -221,11 +963,48 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/creditNotes/",
       "description": "Credits issued to customers against invoices, reducing amounts owed.",
       "endpoints": [
-        { "method": "GET", "path": "/creditNotes/", "description": "Search/list credit notes (filter by Customer.ID, Stage)", "inferred": true },
-        { "method": "GET", "path": "/creditNotes/{creditNoteId}", "description": "Get full detail of a credit note by ID", "inferred": true },
-        { "method": "POST", "path": "/creditNotes/", "description": "Create a new credit note", "inferred": true },
-        { "method": "PATCH", "path": "/creditNotes/{creditNoteId}", "description": "Update a credit note (partial update)", "inferred": true },
-        { "method": "DELETE", "path": "/creditNotes/{creditNoteId}", "description": "Delete a credit note", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/creditNotes/",
+          "description": "Search/list credit notes (filter by Customer.ID, Stage)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_credit_notes"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/creditNotes/{creditNoteId}",
+          "description": "Get full detail of a credit note by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_credit_note"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/creditNotes/",
+          "description": "Create a new credit note",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "PATCH",
+          "path": "/creditNotes/{creditNoteId}",
+          "description": "Update a credit note (partial update)",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "DELETE",
+          "path": "/creditNotes/{creditNoteId}",
+          "description": "Delete a credit note",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -233,11 +1012,47 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/recurringInvoices/",
       "description": "Templates for invoices that repeat on a schedule (e.g. monthly maintenance contracts).",
       "endpoints": [
-        { "method": "GET", "path": "/recurringInvoices/", "description": "Search/list recurring invoice templates (filter by Customer.ID)", "inferred": true },
-        { "method": "GET", "path": "/recurringInvoices/{recurringInvoiceId}", "description": "Get a recurring invoice template by ID", "inferred": true },
-        { "method": "POST", "path": "/recurringInvoices/", "description": "Create a recurring invoice template", "inferred": true },
-        { "method": "PATCH", "path": "/recurringInvoices/{recurringInvoiceId}", "description": "Update a recurring invoice template", "inferred": true },
-        { "method": "DELETE", "path": "/recurringInvoices/{recurringInvoiceId}", "description": "Delete a recurring invoice template", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/recurringInvoices/",
+          "description": "Search/list recurring invoice templates (filter by Customer.ID)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_recurring_invoices"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/recurringInvoices/{recurringInvoiceId}",
+          "description": "Get a recurring invoice template by ID",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "POST",
+          "path": "/recurringInvoices/",
+          "description": "Create a recurring invoice template",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "PATCH",
+          "path": "/recurringInvoices/{recurringInvoiceId}",
+          "description": "Update a recurring invoice template",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "DELETE",
+          "path": "/recurringInvoices/{recurringInvoiceId}",
+          "description": "Delete a recurring invoice template",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -245,11 +1060,48 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/recurringJobs/",
       "description": "Planned maintenance / PM contract job templates that generate recurring work orders on a schedule.",
       "endpoints": [
-        { "method": "GET", "path": "/recurringJobs/", "description": "Search/list recurring job templates (filter by Customer.ID)", "inferred": true },
-        { "method": "GET", "path": "/recurringJobs/{recurringJobId}", "description": "Get full detail of a recurring job template by ID", "inferred": true },
-        { "method": "POST", "path": "/recurringJobs/", "description": "Create a recurring job template", "inferred": true },
-        { "method": "PATCH", "path": "/recurringJobs/{recurringJobId}", "description": "Update a recurring job template", "inferred": true },
-        { "method": "DELETE", "path": "/recurringJobs/{recurringJobId}", "description": "Delete a recurring job template", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/recurringJobs/",
+          "description": "Search/list recurring job templates (filter by Customer.ID)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_recurring_jobs"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/recurringJobs/{recurringJobId}",
+          "description": "Get full detail of a recurring job template by ID",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_recurring_job"
+          ]
+        },
+        {
+          "method": "POST",
+          "path": "/recurringJobs/",
+          "description": "Create a recurring job template",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "PATCH",
+          "path": "/recurringJobs/{recurringJobId}",
+          "description": "Update a recurring job template",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "DELETE",
+          "path": "/recurringJobs/{recurringJobId}",
+          "description": "Delete a recurring job template",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -257,11 +1109,47 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/schedules/",
       "description": "Staff work schedule blocks — time slots assigned to employees for specific jobs or activities.",
       "endpoints": [
-        { "method": "GET", "path": "/schedules/", "description": "Search/list schedule blocks (filter by Staff.ID, DateFrom, DateTo)", "inferred": true },
-        { "method": "GET", "path": "/schedules/{scheduleId}", "description": "Get a specific schedule block by ID", "inferred": true },
-        { "method": "POST", "path": "/schedules/", "description": "Create a schedule block (assign staff to a job/time slot)", "inferred": true },
-        { "method": "PATCH", "path": "/schedules/{scheduleId}", "description": "Update a schedule block", "inferred": true },
-        { "method": "DELETE", "path": "/schedules/{scheduleId}", "description": "Delete a schedule block", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/schedules/",
+          "description": "Search/list schedule blocks (filter by Staff.ID, DateFrom, DateTo)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_schedules"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/schedules/{scheduleId}",
+          "description": "Get a specific schedule block by ID",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "POST",
+          "path": "/schedules/",
+          "description": "Create a schedule block (assign staff to a job/time slot)",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "PATCH",
+          "path": "/schedules/{scheduleId}",
+          "description": "Update a schedule block",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "DELETE",
+          "path": "/schedules/{scheduleId}",
+          "description": "Delete a schedule block",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -270,11 +1158,47 @@
       "description": "Recorded actual labour hours and cost per employee per day, keyed by UID (not integer ID).",
       "notes": "List rows are keyed by UID (not ID). Column name discovery is unverified — full-fetch (no columns filter) is used to avoid 400 errors from wrong column names.",
       "endpoints": [
-        { "method": "GET", "path": "/timesheets/", "description": "Search/list timesheet entries (filter by EmployeeID, DateFrom, DateTo)", "inferred": true },
-        { "method": "GET", "path": "/timesheets/{uid}", "description": "Get a specific timesheet entry by UID", "inferred": true },
-        { "method": "POST", "path": "/timesheets/", "description": "Create a timesheet entry", "inferred": true },
-        { "method": "PATCH", "path": "/timesheets/{uid}", "description": "Update a timesheet entry", "inferred": true },
-        { "method": "DELETE", "path": "/timesheets/{uid}", "description": "Delete a timesheet entry", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/timesheets/",
+          "description": "Search/list timesheet entries (filter by EmployeeID, DateFrom, DateTo)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_timesheets"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/timesheets/{uid}",
+          "description": "Get a specific timesheet entry by UID",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        },
+        {
+          "method": "POST",
+          "path": "/timesheets/",
+          "description": "Create a timesheet entry",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "PATCH",
+          "path": "/timesheets/{uid}",
+          "description": "Update a timesheet entry",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        },
+        {
+          "method": "DELETE",
+          "path": "/timesheets/{uid}",
+          "description": "Delete a timesheet entry",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "M"
+        }
       ]
     },
     {
@@ -282,8 +1206,23 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/staff/",
       "description": "Simpro employee / staff records used for scheduling, task assignment, and timesheet attribution.",
       "endpoints": [
-        { "method": "GET", "path": "/staff/", "description": "List all staff members", "inferred": true },
-        { "method": "GET", "path": "/staff/{staffId}", "description": "Get a staff member by ID", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/staff/",
+          "description": "List all staff members",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_list_staff"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/staff/{staffId}",
+          "description": "Get a staff member by ID",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        }
       ]
     },
     {
@@ -292,8 +1231,23 @@
       "description": "Account-level cost centre definitions used as templates when attaching cost centres to job sections. Distinct from job-section cost centre line items.",
       "notes": "Path is /setup/accounts/costCenters/ — note the US spelling 'Centers' in the API path vs 'Centres' in the Simpro UI. Verified working against Goldman tenant.",
       "endpoints": [
-        { "method": "GET", "path": "/setup/accounts/costCenters/", "description": "List all cost centre definitions (used to find IDs for job section attachment)", "inferred": true },
-        { "method": "GET", "path": "/setup/accounts/costCenters/{costCenterId}", "description": "Get a specific cost centre definition by ID", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/setup/accounts/costCenters/",
+          "description": "List all cost centre definitions (used to find IDs for job section attachment)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_list_cost_centres"
+          ]
+        },
+        {
+          "method": "GET",
+          "path": "/setup/accounts/costCenters/{costCenterId}",
+          "description": "Get a specific cost centre definition by ID",
+          "inferred": true,
+          "coveredBy": [],
+          "priority": "L"
+        }
       ]
     },
     {
@@ -302,7 +1256,15 @@
       "description": "Job status options (e.g. Pending, In Progress, Complete). This tenant does not expose a dedicated /setup/.../statuses endpoint — statuses are sampled from existing job records and de-duplicated.",
       "notes": "Sampled from /jobs/ list endpoint (columns=ID,Status). Dedicated setup endpoint path is unknown / not exposed on this tenant. If your Simpro tenant exposes a /setup/companies/{id}/statuses/ or similar path, adjust ENDPOINTS.jobStatuses in endpoints.ts.",
       "endpoints": [
-        { "method": "GET", "path": "/jobs/", "description": "Sample recent jobs with columns=Status to discover available status values (no dedicated status-list endpoint on this tenant)", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/jobs/",
+          "description": "Sample recent jobs with columns=Status to discover available status values (no dedicated status-list endpoint on this tenant)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_jobs"
+          ]
+        }
       ]
     },
     {
@@ -311,7 +1273,15 @@
       "description": "Quote status options. This tenant does not expose a dedicated /setup/.../statuses endpoint — statuses are sampled from existing quote records.",
       "notes": "Sampled from /quotes/ list endpoint. Same limitation as Job Statuses.",
       "endpoints": [
-        { "method": "GET", "path": "/quotes/", "description": "Sample recent quotes with columns=Status to discover available status values (no dedicated status-list endpoint on this tenant)", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/quotes/",
+          "description": "Sample recent quotes with columns=Status to discover available status values (no dedicated status-list endpoint on this tenant)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_quotes"
+          ]
+        }
       ]
     },
     {
@@ -320,7 +1290,15 @@
       "description": "Job type values (typically 'Service' and 'Project' in Simpro Premium). Sampled from existing job records.",
       "notes": "In Simpro Premium, Type is typically one of two fixed strings. Sampled from /jobs/ list endpoint.",
       "endpoints": [
-        { "method": "GET", "path": "/jobs/", "description": "Sample recent jobs with columns=Type to discover available type values", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/jobs/",
+          "description": "Sample recent jobs with columns=Type to discover available type values",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_jobs"
+          ]
+        }
       ]
     },
     {
@@ -328,7 +1306,15 @@
       "docsUrl": "https://developer.simprogroup.com/apidoc/",
       "description": "Quote type values. Sampled from existing quote records.",
       "endpoints": [
-        { "method": "GET", "path": "/quotes/", "description": "Sample recent quotes with columns=Type to discover available type values", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/quotes/",
+          "description": "Sample recent quotes with columns=Type to discover available type values",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_search_quotes"
+          ]
+        }
       ]
     },
     {
@@ -337,7 +1323,15 @@
       "description": "Top-level account / company information endpoint — not scoped to a company ID. Used as a connection test.",
       "notes": "This is a root-level endpoint at /api/v1.0/info/ (no /companies/{id}/ prefix). Distinct from the company-scoped resources.",
       "endpoints": [
-        { "method": "GET", "path": "/info/", "description": "Get account/company info and verify API connectivity (root-level, not company-scoped)", "inferred": true }
+        {
+          "method": "GET",
+          "path": "/info/",
+          "description": "Get account/company info and verify API connectivity (root-level, not company-scoped)",
+          "inferred": true,
+          "coveredBy": [
+            "simpro_get_company_info"
+          ]
+        }
       ]
     }
   ]
