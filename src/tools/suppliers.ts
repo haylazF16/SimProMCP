@@ -464,6 +464,48 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
       }),
   );
 
+  // ---- update_purchase_order ----
+  // Update the header fields of an existing PO — reference, dates, notes,
+  // status. Line items on the PO are managed via
+  // simpro_add_purchase_order_item / simpro_update_purchase_order_item.
+  registerTool(
+    server,
+    "simpro_update_purchase_order",
+    "Update an existing Simpro purchase order's header fields (reference, dates, status, notes). Only provided fields are sent. Requires confirm=true. For line items use simpro_add_purchase_order_item or simpro_update_purchase_order_item.",
+    () => (
+    {
+      confirm: confirmSchema,
+      purchaseOrderId: idSchema,
+      reference: z.string().optional().describe("Free-text reference / PO number printed on the document."),
+      notes: z.string().optional().describe("Internal notes attached to the PO."),
+      dateIssued: isoDateSchema,
+      dateRequired: isoDateSchema,
+      status: z.union([z.number(), z.string()]).optional()
+        .describe("PO status ID — Simpro's open/sent/complete lifecycle."),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          Reference: args.reference,
+          Notes: args.notes,
+          DateIssued: args.dateIssued,
+          DateRequired: args.dateRequired,
+          Status: args.status !== undefined ? { ID: args.status } : undefined,
+        });
+        if (Object.keys(payload).length === 0) return textResponse("No fields to update.", true);
+        const path = ctx.client.companyPath(ENDPOINTS.vendorOrderById(args.purchaseOrderId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "PATCH", path, payload,
+          summary: `Update purchase order #${args.purchaseOrderId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.patch<Record<string, unknown>>(path, payload);
+        return formatRecord(`Updated purchase order #${args.purchaseOrderId}.`, resp, resp, true);
+      }),
+  );
+
   // ---- search vendor receipts (supplier invoices) ----
   registerTool(
     server,
