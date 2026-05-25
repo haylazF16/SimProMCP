@@ -224,7 +224,9 @@
           "description": "Search/list jobs (supports columns, orderby, and pagination query params)",
           "inferred": true,
           "coveredBy": [
-            "simpro_search_jobs"
+            "simpro_search_jobs",
+            "simpro_list_job_statuses",
+            "simpro_list_job_types"
           ]
         },
         {
@@ -377,7 +379,9 @@
           "description": "Search/list quotes",
           "inferred": true,
           "coveredBy": [
-            "simpro_search_quotes"
+            "simpro_search_quotes",
+            "simpro_list_quote_statuses",
+            "simpro_list_quote_types"
           ]
         },
         {
