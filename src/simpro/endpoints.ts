@@ -43,6 +43,8 @@ export const ENDPOINTS = {
   jobById: (id: string | number) => `/jobs/${encodeURIComponent(String(id))}`,
   jobNotes: (jobId: string | number) => `/jobs/${encodeURIComponent(String(jobId))}/notes/`,
   jobSections: (jobId: string | number) => `/jobs/${encodeURIComponent(String(jobId))}/sections/`,
+  jobSectionById: (jobId: string | number, sectionId: string | number) =>
+    `/jobs/${encodeURIComponent(String(jobId))}/sections/${encodeURIComponent(String(sectionId))}`,
   jobSectionCostCenters: (jobId: string | number, sectionId: string | number) =>
     `/jobs/${encodeURIComponent(String(jobId))}/sections/${encodeURIComponent(String(sectionId))}/costCenters/`,
 
