@@ -166,6 +166,55 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
       }),
   );
 
+  // ---- list_job_sections ----
+  // Simpro's GET /jobs/{id} response does NOT include a Sections array —
+  // sections are a separate sub-resource. This tool exposes them so Claude
+  // can find sectionIds without the user having to fish them out of the
+  // Simpro web UI's URL. Each entry includes the section's CostCenters list
+  // (with their line-item IDs + setup-level CostCentre IDs) so the caller
+  // can tell at a glance whether a section is empty.
+  registerTool(
+    server,
+    "simpro_list_job_sections",
+    "List all sections on a Simpro job, with each section's CostCenters (line items). Use this to find sectionIds for simpro_add_section_cost_centre, or to confirm whether a section already has a cost-centre attached.",
+    () => (
+    {
+      jobId: idSchema,
+      raw: rawFlagSchema,
+    }
+    ),
+    () => async ({ jobId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.jobSections(jobId));
+        const resp = await ctx.client.get<Array<Record<string, unknown>>>(path);
+        const sections = Array.isArray(resp) ? resp : [];
+        if (sections.length === 0) {
+          return textResponse(`Job #${jobId} has no sections.`, false);
+        }
+        return formatList(
+          sections,
+          sections.length,
+          1,
+          sections.length,
+          (s) => {
+            const id = (s as { ID?: number | string }).ID ?? "?";
+            const name = (s as { Name?: string }).Name ?? "(unnamed)";
+            const ccList = (s as { CostCenters?: Array<Record<string, unknown>> }).CostCenters ?? [];
+            const ccSummary = ccList.length === 0
+              ? "empty (no cost centre)"
+              : ccList.map((cc) => {
+                  const ccId = (cc as { ID?: number | string }).ID ?? "?";
+                  const setup = (cc as { CostCentre?: { ID?: number | string; Name?: string } }).CostCentre;
+                  return `line #${ccId}${setup ? ` → CostCentre #${setup.ID ?? "?"}${setup.Name ? ` (${setup.Name})` : ""}` : ""}`;
+                }).join(", ");
+            return `Section #${id} — ${name} — ${ccSummary}`;
+          },
+          resp,
+          raw === true,
+        );
+      }),
+  );
+
   // ---- add_job_section ----
   // Sections in Simpro are a sub-resource of a job — they can't be created
   // in the same payload as the job itself (the v1.0 API rejects them on
