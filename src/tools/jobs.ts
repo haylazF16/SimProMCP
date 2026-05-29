@@ -56,9 +56,11 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
           page: 1,
           pageSize: fetchSize,
           orderby: "-ID",
-          // Only the fields this tool's formatRow reads — keeps the payload
-          // small and avoids fetching HTML-laden columns we never display.
-          columns: "ID,JobNumber,Description,Status,Customer,Site,DateIssued",
+          // NOTE: do not pass a `columns=` selector here. Simpro's /jobs/
+          // list endpoint rejects `JobNumber` as a selectable column with
+          // "Invalid columns: JobNumber" (observed 2026-05-29 on the
+          // Goldman Plumbing tenant), and we need JobNumber in the row
+          // output. Fall back to Simpro's default column set.
           ...buildKeywordFilter(args.query, "Description"),
         });
         const fetched = extractList(resp) as SimproJob[];
