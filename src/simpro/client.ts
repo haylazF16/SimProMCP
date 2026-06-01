@@ -167,6 +167,20 @@ export class SimproClient {
     }
 
     if (!res.ok) {
+      // Surface a class of bug we've hit before: Simpro returns 400 with
+      // "Invalid columns: <name>" when a columns= selector contains a
+      // column the endpoint doesn't expose (see fa7959d). The error body
+      // is otherwise opaque to operators — log it once at WARN so the
+      // next occurrence on a different endpoint shows up in stderr/audit
+      // without waiting for a user screenshot.
+      if (res.status === 400) {
+        const bodyStr = typeof parsed === "string" ? parsed : safeJsonStringify(parsed);
+        if (/invalid\s+columns?/i.test(bodyStr)) {
+          log.warn(
+            `Simpro rejected columns selector on ${method} ${path}: ${bodyStr.slice(0, 300)}`,
+          );
+        }
+      }
       throw new SimproApiError({
         status: res.status,
         method,
@@ -194,4 +208,12 @@ function isAbortError(err: unknown): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function safeJsonStringify(v: unknown): string {
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
 }
