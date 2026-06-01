@@ -71,9 +71,14 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
         );
         const limit = args.pageSize ?? ctx.config.SIMPRO_DEFAULT_PAGE_SIZE;
         const items = filtered.slice(0, limit);
+        // Must match applyClientFilters' semantics exactly — otherwise the
+        // truncation warning below can fire when no row was actually
+        // filtered (e.g. caller passes status: "" → anyFilter true here but
+        // applyClientFilters treats empty-string as "no filter").
         const anyFilter =
-          customerId !== undefined || args.siteId !== undefined ||
-          args.status !== undefined || args.dateFrom !== undefined || args.dateTo !== undefined;
+          customerId != null || args.siteId != null ||
+          (args.status !== undefined && args.status !== "") ||
+          !!args.dateFrom || !!args.dateTo;
         const result = formatList(
           items,
           undefined,
@@ -412,8 +417,11 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
       safeRun(async () => {
         const size = sampleSize ?? 200;
         const path = ctx.client.companyPath(ENDPOINTS.jobs);
+        // No columns= selector: Simpro's /jobs/ list endpoint rejects some
+        // bare column names (see fa7959d — "Invalid columns: JobNumber").
+        // The default response includes Status, which is all we need here.
         const resp = await ctx.client.get<unknown>(path, {
-          page: 1, pageSize: size, columns: "ID,Status",
+          page: 1, pageSize: size,
         });
         const items = extractList(resp) as { Status?: { ID?: number; Name?: string; Color?: string } }[];
         const map = new Map<number, { ID: number; Name?: string; Color?: string }>();
@@ -447,8 +455,10 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
       safeRun(async () => {
         const size = sampleSize ?? 200;
         const path = ctx.client.companyPath(ENDPOINTS.jobs);
+        // No columns= selector: see simpro_list_job_statuses comment above.
+        // Type is included in Simpro's default /jobs/ list response.
         const resp = await ctx.client.get<unknown>(path, {
-          page: 1, pageSize: size, columns: "ID,Type",
+          page: 1, pageSize: size,
         });
         const items = extractList(resp) as { Type?: unknown }[];
         const seen = new Set<string>();
