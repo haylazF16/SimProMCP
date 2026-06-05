@@ -167,19 +167,19 @@ export class SimproClient {
     }
 
     if (!res.ok) {
-      // Surface a class of bug we've hit before: Simpro returns 400 with
-      // "Invalid columns: <name>" when a columns= selector contains a
-      // column the endpoint doesn't expose (see fa7959d). The error body
-      // is otherwise opaque to operators — log it once at WARN so the
-      // next occurrence on a different endpoint shows up in stderr/audit
-      // without waiting for a user screenshot.
-      if (res.status === 400) {
-        const bodyStr = typeof parsed === "string" ? parsed : safeJsonStringify(parsed);
-        if (/invalid\s+columns?/i.test(bodyStr)) {
-          log.warn(
-            `Simpro rejected columns selector on ${method} ${path}: ${bodyStr.slice(0, 300)}`,
-          );
-        }
+      // Surface a class of bug we've hit before: Simpro rejects a columns=
+      // selector naming a column the endpoint doesn't expose, with
+      // "Invalid columns ..." in the body. Observed as BOTH 400 (jobs:
+      // "Invalid columns: JobNumber") AND 422 (sites: "Invalid columns
+      // found", value "Customer") — so do NOT gate on a specific status
+      // code; regex the body on ANY error response. Otherwise this message
+      // is opaque to operators — log it at WARN so the next occurrence on a
+      // different endpoint shows up in stderr/audit without a screenshot.
+      const bodyStr = typeof parsed === "string" ? parsed : safeJsonStringify(parsed);
+      if (/invalid\s+columns?/i.test(bodyStr)) {
+        log.warn(
+          `Simpro rejected columns selector on ${method} ${path} (status ${res.status}): ${bodyStr.slice(0, 300)}`,
+        );
       }
       throw new SimproApiError({
         status: res.status,
@@ -212,7 +212,10 @@ function sleep(ms: number): Promise<void> {
 
 function safeJsonStringify(v: unknown): string {
   try {
-    return JSON.stringify(v);
+    // JSON.stringify returns undefined for undefined/function/symbol inputs;
+    // coerce so this always honours its `: string` return type (an empty 400
+    // body leaves `parsed` undefined, which would otherwise yield undefined).
+    return JSON.stringify(v) ?? String(v);
   } catch {
     return String(v);
   }
