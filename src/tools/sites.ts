@@ -1,13 +1,50 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
-import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, addressSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
 import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 import { SimproSite } from "../simpro/types.js";
+
+// Sites can reference customers in several shapes depending on tenant/endpoint:
+// a singular `Customer` ref, a flat `CustomerID`, or a `Customers[]` array of
+// `{ Customer: {...} }` (the shape used when creating a site). These helpers
+// read all of them so customer filtering/display work regardless of shape, and
+// tolerate either `Name` or `CompanyName` on the customer ref.
+type SiteCustomerRef = { ID?: number | string; Name?: string; CompanyName?: string };
+
+function siteCustomerRefs(site: SimproSite): SiteCustomerRef[] {
+  const refs: SiteCustomerRef[] = [];
+  if (site.Customer && typeof site.Customer === "object") {
+    refs.push(site.Customer as SiteCustomerRef);
+  }
+  if (site.CustomerID != null) refs.push({ ID: site.CustomerID as number | string });
+  const many = site.Customers;
+  if (Array.isArray(many)) {
+    for (const entry of many) {
+      if (entry && typeof entry === "object") {
+        const c = (entry as { Customer?: unknown }).Customer ?? entry;
+        if (c && typeof c === "object") refs.push(c as SiteCustomerRef);
+      }
+    }
+  }
+  return refs;
+}
+
+function siteBelongsToCustomer(site: SimproSite, customerId: number | string): boolean {
+  const want = String(customerId);
+  return siteCustomerRefs(site).some((r) => r.ID != null && String(r.ID) === want);
+}
+
+function siteCustomerName(site: SimproSite): string | undefined {
+  for (const r of siteCustomerRefs(site)) {
+    const name = r.Name ?? r.CompanyName;
+    if (typeof name === "string" && name) return name;
+  }
+  return undefined;
+}
 
 export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
   // ---- 3. search ----
@@ -27,7 +64,7 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
       raw: rawFlagSchema,
     }
     ),
-    () => async ({ query, customerName, customerId, page, pageSize, raw }) =>
+    () => async ({ query, customerName, customerId, pageSize, raw }) =>
       safeRun(async () => {
         let effectiveCustomerId = customerId;
         let resolvedNote = "";
@@ -38,32 +75,49 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
           resolvedNote = lookup.note + "\n\n";
         }
         const path = ctx.client.companyPath(ENDPOINTS.sites);
-        const pg = paginationQuery(ctx.config, page, pageSize);
+        // NOTE: no columns= selector. Simpro's /sites/ list endpoint rejects
+        // "Customer" as a selectable column ("Invalid columns found", observed
+        // 2026-06-05) — same class as JobNumber on /jobs/ (see fa7959d). We
+        // also do NOT pass CustomerID as a query param: Simpro list endpoints
+        // silently ignore unknown filter params, so customer filtering happens
+        // client-side after a newest-first scan window (mirrors search_jobs).
+        const fetchSize = 250;
         const resp = await ctx.client.get<unknown>(path, {
-          ...pg.query,
-          // Only the fields this tool's formatRow reads.
-          columns: "ID,Name,Address,Customer",
+          page: 1,
+          pageSize: fetchSize,
+          orderby: "-ID",
           ...buildKeywordFilter(query, "Name"),
-          CustomerID: effectiveCustomerId,
         });
-        const items = extractList(resp) as SimproSite[];
+        const fetched = extractList(resp) as SimproSite[];
+        const wantCustomerId = effectiveCustomerId;
+        const filtered =
+          wantCustomerId === undefined
+            ? fetched
+            : fetched.filter((s) => siteBelongsToCustomer(s, wantCustomerId));
+        const limit = pageSize ?? ctx.config.SIMPRO_DEFAULT_PAGE_SIZE;
+        const items = filtered.slice(0, limit);
         const result = formatList(
           items,
           undefined,
-          pg.page,
-          pg.pageSize,
+          1,
+          limit,
           (s) => {
             const addr = s.Address;
             const addrStr = addr
               ? [addr.Address, addr.City, addr.State, addr.PostalCode].filter(Boolean).join(", ")
               : "";
+            const custName = siteCustomerName(s);
             return `#${s.ID ?? "?"} ${s.Name ?? "(unnamed)"}${addrStr ? ` — ${addrStr}` : ""}` +
-              `${s.Customer?.Name ? ` [customer: ${s.Customer.Name}]` : ""}`;
+              `${custName ? ` [customer: ${custName}]` : ""}`;
           },
           resp,
           raw === true,
         );
         if (resolvedNote) result.content[0].text = resolvedNote + result.content[0].text;
+        if (fetched.length === fetchSize && wantCustomerId !== undefined) {
+          result.content[0].text +=
+            `\n\n(Showing matches within the first ${fetchSize} sites scanned. If an expected match is missing, narrow your search.)`;
+        }
         return result;
       }),
   );
