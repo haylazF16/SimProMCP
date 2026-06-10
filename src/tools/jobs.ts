@@ -219,7 +219,13 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
               ? "empty (no cost centre)"
               : ccList.map((cc) => {
                   const ccId = (cc as { ID?: number | string }).ID ?? "?";
-                  const setup = (cc as { CostCentre?: { ID?: number | string; Name?: string } }).CostCentre;
+                  // Simpro responses nest the setup ref as `CostCenter` (US
+                  // spelling); keep the CostCentre fallback for safety.
+                  const ref = cc as {
+                    CostCenter?: { ID?: number | string; Name?: string };
+                    CostCentre?: { ID?: number | string; Name?: string };
+                  };
+                  const setup = ref.CostCenter ?? ref.CostCentre;
                   return `line #${ccId}${setup ? ` → CostCentre #${setup.ID ?? "?"}${setup.Name ? ` (${setup.Name})` : ""}` : ""}`;
                 }).join(", ");
             return `Section #${id} — ${name} — ${ccSummary}`;
@@ -279,7 +285,10 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
           return formatRecord(`Added empty section #${sectionId} to job #${args.jobId}.`, sectionResp, sectionResp, true);
         }
         const ccPath = ctx.client.companyPath(ENDPOINTS.jobSectionCostCenters(args.jobId, sectionId));
-        const ccPayload = { CostCentre: { ID: args.costCenterId } };
+        // Simpro expects { CostCenter: <setupCostCenterID> } — US spelling,
+        // bare ID. { CostCentre: { ID } } is rejected 422 "Invalid column."
+        // (observed in production 2026-06-08/09 on both attempted payloads).
+        const ccPayload = { CostCenter: args.costCenterId };
         try {
           const ccResp = await ctx.client.post<Record<string, unknown>>(ccPath, ccPayload);
           const ccLineId = (ccResp as { ID?: number | string }).ID ?? "?";
@@ -318,7 +327,9 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
     ),
     () => async (args) =>
       safeRun(async () => {
-        const payload = args.rawPayload ?? { CostCentre: { ID: args.costCentreId } };
+        // Simpro expects { CostCenter: <setupCostCenterID> } — US spelling,
+        // bare ID (see simpro_add_job_section above for the 422 history).
+        const payload = args.rawPayload ?? { CostCenter: args.costCentreId };
         const path = ctx.client.companyPath(ENDPOINTS.jobSectionCostCenters(args.jobId, args.sectionId));
         const blocked = writeGuard(ctx, {
           confirm: args.confirm, method: "POST", path, payload,
