@@ -169,17 +169,19 @@ export class SimproClient {
     if (!res.ok) {
       // Surface a class of bug we've hit before: Simpro rejects a columns=
       // selector naming a column the endpoint doesn't expose, with
-      // "Invalid columns ..." in the body. Observed as BOTH 400 (jobs:
+      // "Invalid columns ..." in the body — observed as 400 (jobs:
       // "Invalid columns: JobNumber") AND 422 (sites: "Invalid columns
-      // found", value "Customer") — so do NOT gate on a specific status
-      // code; regex the body on ANY error response. Otherwise this message
-      // is opaque to operators — log it at WARN so the next occurrence on a
-      // different endpoint shows up in stderr/audit without a screenshot.
-      const bodyStr = typeof parsed === "string" ? parsed : safeJsonStringify(parsed);
-      if (/invalid\s+columns?/i.test(bodyStr)) {
-        log.warn(
-          `Simpro rejected columns selector on ${method} ${path} (status ${res.status}): ${bodyStr.slice(0, 300)}`,
-        );
+      // found", value "Customer"). Gate on 4xx, not a single status: any
+      // client error can carry the message, but retried 5xx bodies (HTML
+      // outage pages, scanned once per retry attempt) cannot meaningfully
+      // contain it and would only add stringify cost and WARN noise.
+      if (res.status >= 400 && res.status < 500) {
+        const bodyStr = typeof parsed === "string" ? parsed : safeJsonStringify(parsed);
+        if (/invalid\s+columns?/i.test(bodyStr.slice(0, 2000))) {
+          log.warn(
+            `Simpro rejected columns selector on ${method} ${path} (status ${res.status}): ${bodyStr.slice(0, 300)}`,
+          );
+        }
       }
       throw new SimproApiError({
         status: res.status,

@@ -72,4 +72,16 @@ describe("SimproClient — Invalid columns WARN detector", () => {
 
     expect(err.lines()).not.toContain("rejected columns selector");
   });
+
+  it("does NOT warn on a 5xx even if the body mentions invalid columns", async () => {
+    // The detector is gated to 4xx: outage-era 5xx bodies (often large HTML
+    // pages, re-fetched once per retry attempt) must not trigger the WARN.
+    const err = captureStderr();
+    stubFetch(500, "<html>Internal error: invalid columns in view</html>");
+    const client = new SimproClient(fakeConfig());
+
+    await expect(client.get("/jobs/")).rejects.toBeInstanceOf(SimproApiError);
+
+    expect(err.lines()).not.toContain("rejected columns selector");
+  });
 });
