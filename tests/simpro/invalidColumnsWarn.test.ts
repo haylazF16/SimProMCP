@@ -41,26 +41,42 @@ afterEach(() => {
 });
 
 describe("SimproClient — Invalid columns WARN detector", () => {
-  it("warns on a 422 'Invalid columns found' body (the /sites/ case)", async () => {
+  it("warns on a 422 'Invalid columns found' body when columns= was sent (the /sites/ case)", async () => {
     const err = captureStderr();
     stubFetch(422, { errors: [{ message: "Invalid columns found", value: "Customer" }] });
     const client = new SimproClient(fakeConfig());
 
-    await expect(client.get("/sites/")).rejects.toBeInstanceOf(SimproApiError);
+    await expect(client.get("/sites/", { columns: "ID,Customer" })).rejects.toBeInstanceOf(SimproApiError);
 
     const logged = err.lines();
     expect(logged).toContain("rejected columns selector");
     expect(logged).toContain("status 422");
   });
 
-  it("warns on a 400 'Invalid columns: JobNumber' body (the /jobs/ case)", async () => {
+  it("warns on a 400 'Invalid columns: JobNumber' body when columns= was sent (the /jobs/ case)", async () => {
     const err = captureStderr();
     stubFetch(400, "Invalid columns: JobNumber");
     const client = new SimproClient(fakeConfig());
 
-    await expect(client.get("/jobs/")).rejects.toBeInstanceOf(SimproApiError);
+    await expect(client.get("/jobs/", { columns: "ID,JobNumber" })).rejects.toBeInstanceOf(SimproApiError);
 
     expect(err.lines()).toContain("rejected columns selector");
+  });
+
+  it("does NOT warn when the request sent no columns= param (payload-field rejections)", async () => {
+    // Production false positive (journalctl 2026-06-09): a POST whose BODY
+    // field was rejected — {"path":"/CostCentre","message":"Invalid column."}
+    // — triggered "rejected columns selector" although no columns= selector
+    // existed on the request. The detector must require columns= in the URL.
+    const err = captureStderr();
+    stubFetch(422, { errors: [{ path: "/CostCentre", message: "Invalid column.", value: { ID: 130 } }] });
+    const client = new SimproClient(fakeConfig());
+
+    await expect(
+      client.post("/jobs/132034/sections/300971/costCenters/", { CostCenter: 130 }),
+    ).rejects.toBeInstanceOf(SimproApiError);
+
+    expect(err.lines()).not.toContain("rejected columns selector");
   });
 
   it("does NOT warn for an unrelated error body", async () => {

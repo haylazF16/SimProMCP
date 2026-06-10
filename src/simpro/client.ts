@@ -175,7 +175,12 @@ export class SimproClient {
       // client error can carry the message, but retried 5xx bodies (HTML
       // outage pages, scanned once per retry attempt) cannot meaningfully
       // contain it and would only add stringify cost and WARN noise.
-      if (res.status >= 400 && res.status < 500) {
+      // ALSO require that the request actually carried a columns= selector:
+      // Simpro uses the same "Invalid column." wording when rejecting a
+      // PAYLOAD field on a POST (e.g. {"path":"/CostCentre"} on
+      // /sections/{sid}/costCenters/ — observed 2026-06-09), and blaming a
+      // nonexistent columns selector sent operators down the wrong path.
+      if (res.status >= 400 && res.status < 500 && url.includes("columns=")) {
         const bodyStr = typeof parsed === "string" ? parsed : safeJsonStringify(parsed);
         if (/invalid\s+columns?/i.test(bodyStr.slice(0, 2000))) {
           log.warn(
