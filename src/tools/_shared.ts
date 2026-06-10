@@ -95,6 +95,30 @@ export function __resetSchemaCacheForTests(): void {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ToolHandler = (args: any) => Promise<McpTextResponse>;
 
+/**
+ * Per-server hook reporting each tool call's REAL outcome (the isError flag
+ * of the MCP response). Needed because safeRun converts Simpro errors into
+ * isError responses that never throw — so the HTTP transport's "didn't
+ * throw" signal records every failed tool call as a success in audit.log
+ * (observed in production: 422s in journalctl, ok:true in audit, 2026-06-09).
+ *
+ * The hook is attached to the (per-request) McpServer instance via a Symbol
+ * so the ~68 registerTool call sites stay untouched; registerTool reads it
+ * at registration time and wraps the handler. Set it BEFORE registerAllTools.
+ */
+export interface ToolResultInfo {
+  tool: string;
+  isError: boolean;
+  errorText?: string;
+}
+export type ToolResultHook = (info: ToolResultInfo) => void;
+
+const TOOL_RESULT_HOOK = Symbol("simproToolResultHook");
+
+export function setToolResultHook(server: McpServer, hook: ToolResultHook): void {
+  (server as unknown as Record<symbol, ToolResultHook>)[TOOL_RESULT_HOOK] = hook;
+}
+
 export function registerTool(
   server: McpServer,
   name: string,
@@ -109,12 +133,29 @@ export function registerTool(
     __schemaBuildCounts.set(name, (__schemaBuildCounts.get(name) ?? 0) + 1);
   }
   // Handler is rebuilt per request — it captures the per-user ctx.
+  const handler = handlerFactory();
+  const hook = (server as unknown as Record<symbol, ToolResultHook | undefined>)[TOOL_RESULT_HOOK];
+  const finalHandler: ToolHandler = hook
+    ? async (args) => {
+        const out = await handler(args);
+        try {
+          hook({
+            tool: name,
+            isError: out?.isError === true,
+            errorText: out?.isError === true ? out.content?.[0]?.text?.slice(0, 200) : undefined,
+          });
+        } catch {
+          // The audit hook must never break the tool call itself.
+        }
+        return out;
+      }
+    : handler;
   (server.tool as unknown as (
     n: string,
     d: string,
     s: z.ZodRawShape,
     h: ToolHandler,
-  ) => void)(name, description, shape, handlerFactory());
+  ) => void)(name, description, shape, finalHandler);
 }
 
 export function textResponse(text: string, isError = false): McpTextResponse {

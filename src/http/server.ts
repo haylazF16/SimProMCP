@@ -33,6 +33,7 @@ import { Config } from "../config.js";
 import { log, maskToken } from "../logger.js";
 import { SimproClient } from "../simpro/client.js";
 import { registerAllTools } from "../tools/index.js";
+import { setToolResultHook } from "../tools/_shared.js";
 import {
   authenticate,
   COMPANY_IDS,
@@ -372,6 +373,13 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
       { name: `simpro-mcp-server (${company})`, version: "0.1.0" },
       { capabilities: { tools: {} } },
     );
+    // Capture the tool's REAL outcome. safeRun converts Simpro errors into
+    // isError responses that never throw, so "transport didn't throw" used
+    // to record every failed tool call as ok:true in the audit log.
+    let toolFailure: { errorText?: string } | undefined;
+    setToolResultHook(server, (r) => {
+      if (r.isError) toolFailure = { errorText: r.errorText };
+    });
     registerAllTools(server, { client, config: userConfig });
 
     const transport = new StreamableHTTPServerTransport({
@@ -392,15 +400,17 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
     try {
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
-      // Touch lastUsedAt + audit on success.
+      // Touch lastUsedAt + audit. `ok` reflects the tool's real outcome
+      // (isError flag via the result hook), not just transport success.
       touchTokenLastUsed(config.SIMPRO_TOKENS_FILE, auth.token);
       if (rpc.method === "tools/call" && rpc.toolName) {
         recordAudit(config.SIMPRO_AUDIT_FILE, {
           user: auth.record.name,
           company,
           tool: rpc.toolName,
-          ok: true,
+          ok: toolFailure === undefined,
           durationMs: Date.now() - t0,
+          errorMessage: toolFailure?.errorText,
           details: summarizeArgs(rpc.toolName, rpc.args),
         });
       }
