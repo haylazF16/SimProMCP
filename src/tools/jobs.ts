@@ -50,8 +50,20 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
         // Filtered search needs a wide, NEWEST-first scan window. Simpro v1.0
         // list endpoints default to oldest-first by ID, so without orderby the
         // 100-record default would only ever cover the most ancient records and
-        // miss the customer's recent jobs. 250 is the agreed scan cap.
-        const fetchSize = 250;
+        // miss the customer's recent jobs. 250 is the agreed scan cap; an
+        // unfiltered listing fetches just enough to serve the requested page.
+        const limit = args.pageSize ?? ctx.config.SIMPRO_DEFAULT_PAGE_SIZE;
+        const pageNum = args.page ?? 1;
+        // Must match applyClientFilters' semantics exactly — otherwise the
+        // truncation warning below can fire when no row was actually
+        // filtered (e.g. caller passes status: "" → anyFilter true here but
+        // applyClientFilters treats empty-string as "no filter").
+        const anyFilter =
+          customerId != null || args.siteId != null ||
+          (args.status !== undefined && args.status !== "") ||
+          !!args.dateFrom || !!args.dateTo;
+        const scanCap = 250;
+        const fetchSize = anyFilter ? scanCap : Math.min(pageNum * limit, scanCap);
         const resp = await ctx.client.get<unknown>(path, {
           page: 1,
           pageSize: fetchSize,
@@ -69,20 +81,12 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
           { customerId, siteId: args.siteId, status: args.status, dateFrom: args.dateFrom, dateTo: args.dateTo },
           { dateField: "DateIssued" },
         );
-        const limit = args.pageSize ?? ctx.config.SIMPRO_DEFAULT_PAGE_SIZE;
-        const items = filtered.slice(0, limit);
-        // Must match applyClientFilters' semantics exactly — otherwise the
-        // truncation warning below can fire when no row was actually
-        // filtered (e.g. caller passes status: "" → anyFilter true here but
-        // applyClientFilters treats empty-string as "no filter").
-        const anyFilter =
-          customerId != null || args.siteId != null ||
-          (args.status !== undefined && args.status !== "") ||
-          !!args.dateFrom || !!args.dateTo;
+        const start = (pageNum - 1) * limit;
+        const items = filtered.slice(start, start + limit);
         const result = formatList(
           items,
           undefined,
-          1,
+          pageNum,
           limit,
           (j) => {
             const status = typeof j.Status === "string" ? j.Status : j.Status?.Name ?? "";
@@ -96,9 +100,13 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
           args.raw === true,
         );
         if (resolvedNote) result.content[0].text = resolvedNote + result.content[0].text;
-        if (fetched.length === fetchSize && anyFilter) {
+        // Warn only when the scan window itself is exhausted: a client-side
+        // filter scanned a full window, or the requested page extends past
+        // what one window can serve. A full fetch on an unfiltered early
+        // page just means more pages exist — that's normal.
+        if (fetched.length === scanCap && (anyFilter || pageNum * limit > scanCap)) {
           result.content[0].text +=
-            `\n\n(Showing matches within the first ${fetchSize} records scanned. If an expected match is missing, narrow your search.)`;
+            `\n\n(Showing matches within the first ${scanCap} records scanned. If an expected match is missing, narrow your search.)`;
         }
         return result;
       }),

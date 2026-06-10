@@ -64,7 +64,7 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
       raw: rawFlagSchema,
     }
     ),
-    () => async ({ query, customerName, customerId, pageSize, raw }) =>
+    () => async ({ query, customerName, customerId, page, pageSize, raw }) =>
       safeRun(async () => {
         let effectiveCustomerId = customerId;
         let resolvedNote = "";
@@ -81,7 +81,16 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
         // also do NOT pass CustomerID as a query param: Simpro list endpoints
         // silently ignore unknown filter params, so customer filtering happens
         // client-side after a newest-first scan window (mirrors search_jobs).
-        const fetchSize = 250;
+        // Pagination is client-side too (a server-side page of the unfiltered
+        // list is meaningless once rows are filtered out), so the wide scan
+        // window is only fetched when the customer filter is active; plain
+        // listing fetches just enough rows to serve the requested page.
+        const limit = pageSize ?? ctx.config.SIMPRO_DEFAULT_PAGE_SIZE;
+        const pageNum = page ?? 1;
+        const wantCustomerId = effectiveCustomerId;
+        const filterActive = wantCustomerId !== undefined;
+        const scanCap = 250;
+        const fetchSize = filterActive ? scanCap : Math.min(pageNum * limit, scanCap);
         const resp = await ctx.client.get<unknown>(path, {
           page: 1,
           pageSize: fetchSize,
@@ -89,17 +98,15 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
           ...buildKeywordFilter(query, "Name"),
         });
         const fetched = extractList(resp) as SimproSite[];
-        const wantCustomerId = effectiveCustomerId;
-        const filtered =
-          wantCustomerId === undefined
-            ? fetched
-            : fetched.filter((s) => siteBelongsToCustomer(s, wantCustomerId));
-        const limit = pageSize ?? ctx.config.SIMPRO_DEFAULT_PAGE_SIZE;
-        const items = filtered.slice(0, limit);
+        const filtered = filterActive
+          ? fetched.filter((s) => siteBelongsToCustomer(s, wantCustomerId))
+          : fetched;
+        const start = (pageNum - 1) * limit;
+        const items = filtered.slice(start, start + limit);
         const result = formatList(
           items,
           undefined,
-          1,
+          pageNum,
           limit,
           (s) => {
             const addr = s.Address;
@@ -114,9 +121,13 @@ export function registerSiteTools(server: McpServer, ctx: ToolCtx) {
           raw === true,
         );
         if (resolvedNote) result.content[0].text = resolvedNote + result.content[0].text;
-        if (fetched.length === fetchSize && wantCustomerId !== undefined) {
+        // Warn only when the scan window itself is exhausted: either a
+        // client-side filter scanned a full window, or the requested page
+        // extends past what one window can serve. A full fetch on an
+        // unfiltered early page just means more pages exist — that's normal.
+        if (fetched.length === scanCap && (filterActive || pageNum * limit > scanCap)) {
           result.content[0].text +=
-            `\n\n(Showing matches within the first ${fetchSize} sites scanned. If an expected match is missing, narrow your search.)`;
+            `\n\n(Showing matches within the first ${scanCap} sites scanned. If an expected match is missing, narrow your search.)`;
         }
         return result;
       }),

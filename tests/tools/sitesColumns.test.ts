@@ -121,4 +121,22 @@ describe("simpro_search_sites — request shape (no columns=, no CustomerID)", (
     // And the matched customer name is surfaced from the array ref.
     expect(out).toContain("customer: Acme");
   });
+
+  it("honours the page parameter via client-side slicing", async () => {
+    const rows = [
+      { ID: 3, Name: "Site C" },
+      { ID: 2, Name: "Site B" },
+      { ID: 1, Name: "Site A" },
+    ];
+    const { ctx, calls } = fakeCtxWithSpy(rows);
+    const out = await callTool(ctx, "simpro_search_sites", { page: 2, pageSize: 2 });
+    // Unfiltered: the fetch is sized to the requested window (page*limit),
+    // not the 250 scan cap reserved for client-side filtering.
+    const get = calls.find((c) => c.path.endsWith("/sites/"));
+    expect(get!.query!.pageSize).toBe(4);
+    // Page 2 of size 2 over [C, B, A] → just A.
+    expect(out).toContain("Site A");
+    expect(out).not.toContain("Site B");
+    expect(out).not.toContain("Site C");
+  });
 });
