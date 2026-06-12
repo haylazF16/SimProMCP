@@ -294,39 +294,47 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
   attachAdminRoutes(adminRouter, config);
   app.use(adminRouter);
 
-  // OAuth 2.0 Protected Resource Metadata (RFC 9728), one document per MCP
-  // resource. Claude's connector client fetches this (or reads the
-  // WWW-Authenticate header on the 401, set in handleMcp) to discover the
-  // authorization server. Without it the Connect flow loops on claude.com and
-  // never reaches our consent page. Registered BEFORE mcpAuthRouter so it wins.
   const issuerOrigin = issuerUrl.origin;
-  const RESOURCE_NAMES: Record<CompanyKey, string> = {
-    plumbing: "Goldman Simpro MCP (Plumbing)",
-    energy: "Goldman Simpro MCP (Energy)",
-  };
-  for (const company of Object.keys(RESOURCE_NAMES) as CompanyKey[]) {
-    app.get(`/.well-known/oauth-protected-resource/mcp/${company}`, (_req, res) => {
-      res.json(
-        buildProtectedResourceMetadata({
-          issuerOrigin,
-          resourcePath: `/mcp/${company}`,
-          resourceName: RESOURCE_NAMES[company],
-        }),
-      );
-    });
-  }
 
-  // SDK's auth router provides /token, /register, /.well-known/* — for
-  // /authorize, we already attached our own above which returns the consent
-  // page. The SDK router's /authorize never gets hit because Express matches
-  // ours first.
-  app.use(
-    mcpAuthRouter({
-      provider: oauthProvider,
-      issuerUrl,
-      resourceName: "Goldman Simpro MCP",
-    }),
-  );
+  // OAuth discovery + endpoints are published ONLY when auth is required.
+  // In no-login trial mode (SIMPRO_REQUIRE_AUTH=false) the server advertises
+  // NO OAuth metadata at all — otherwise Claude discovers it, assumes the
+  // connector needs a sign-in service, and fails on client registration
+  // ("Couldn't register with ... sign-in service"). With no metadata and a
+  // 200 from /mcp, Claude treats it as a plain no-auth connector.
+  if (config.SIMPRO_REQUIRE_AUTH) {
+    // OAuth 2.0 Protected Resource Metadata (RFC 9728), one doc per MCP
+    // resource — Claude reads this (or the WWW-Authenticate header on the 401
+    // set in handleMcp) to discover the authorization server. Registered
+    // BEFORE mcpAuthRouter so it wins.
+    const RESOURCE_NAMES: Record<CompanyKey, string> = {
+      plumbing: "Goldman Simpro MCP (Plumbing)",
+      energy: "Goldman Simpro MCP (Energy)",
+    };
+    for (const company of Object.keys(RESOURCE_NAMES) as CompanyKey[]) {
+      app.get(`/.well-known/oauth-protected-resource/mcp/${company}`, (_req, res) => {
+        res.json(
+          buildProtectedResourceMetadata({
+            issuerOrigin,
+            resourcePath: `/mcp/${company}`,
+            resourceName: RESOURCE_NAMES[company],
+          }),
+        );
+      });
+    }
+
+    // SDK's auth router provides /token, /register, /.well-known/* — for
+    // /authorize, we already attached our own above which returns the consent
+    // page. The SDK router's /authorize never gets hit because Express matches
+    // ours first.
+    app.use(
+      mcpAuthRouter({
+        provider: oauthProvider,
+        issuerUrl,
+        resourceName: "Goldman Simpro MCP",
+      }),
+    );
+  }
 
   app.get("/healthz", (_req, res) => {
     res.json({
