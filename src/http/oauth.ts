@@ -166,16 +166,16 @@ export class GoldmanOAuthProvider implements OAuthServerProvider {
       log.warn(`[oauth] exchange FAILED: client mismatch (issued to ${data.client.client_id}, presented by ${client.client_id})`);
       throw new Error("Code was not issued to this client");
     }
-    // PKCE: the SDK's /token handler MAY validate the verifier itself before
-    // delegating, but the spec requires the auth server enforce it — and we
-    // can't be certain across SDK versions. Defence-in-depth: validate here
-    // too. Without this, an attacker who steals an authorization code from
-    // a redirect log/header can exchange it without the verifier.
-    if (!codeVerifier) {
-      log.warn(`[oauth] exchange FAILED: missing PKCE code_verifier`);
-      throw new Error("Missing PKCE code_verifier");
-    }
-    if (!verifyPkce(codeVerifier, data.params.codeChallenge)) {
+    // PKCE is enforced by the SDK's /token router BEFORE this method runs: it
+    // calls challengeForAuthorizationCode() (above) to fetch the stored
+    // code_challenge and verifies the presented code_verifier against it,
+    // THEN delegates here with codeVerifier=undefined (SDK 1.29+ only forwards
+    // the verifier when a provider opts into skipLocalPkceValidation, which we
+    // don't). A previous defence-in-depth `if (!codeVerifier) throw` therefore
+    // fired on EVERY real exchange — 500 "Internal Server Error" — silently
+    // blocking all fresh connections. Do NOT reinstate it without also setting
+    // skipLocalPkceValidation; the SDK already guarantees PKCE here.
+    if (codeVerifier && !verifyPkce(codeVerifier, data.params.codeChallenge)) {
       log.warn(`[oauth] exchange FAILED: PKCE verification failed`);
       throw new Error("PKCE verification failed");
     }
