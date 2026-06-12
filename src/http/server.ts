@@ -495,9 +495,19 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
   app.post("/mcp/plumbing", handleMcp("plumbing"));
   app.post("/mcp/energy", handleMcp("energy"));
 
+  // Fresh alias paths. Claude (web) caches a connector's OAuth discovery by
+  // URL: a connector first added while the server required OAuth keeps the
+  // cached sign-in metadata (incl. the old /register endpoint) and retries it
+  // forever — even after the server drops OAuth — failing with "Couldn't
+  // register with ... sign-in service". Adding a brand-new connector at a URL
+  // Claude has never seen sidesteps that cache, so it probes fresh, sees no
+  // OAuth + a 200, and connects as plain no-auth.
+  app.post("/connect/plumbing", handleMcp("plumbing"));
+  app.post("/connect/energy", handleMcp("energy"));
+
   // 405 Method Not Allowed for GET/DELETE on the MCP endpoints (stateless mode).
   for (const method of ["get", "delete"] as const) {
-    app[method](["/mcp/plumbing", "/mcp/energy"], (_req, res) => {
+    app[method](["/mcp/plumbing", "/mcp/energy", "/connect/plumbing", "/connect/energy"], (_req, res) => {
       res
         .status(405)
         .set("Allow", "POST")
