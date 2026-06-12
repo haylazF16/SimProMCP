@@ -410,10 +410,18 @@ function consentPage(opts: {
  *
  * We accept:
  *   - https://claude.ai/* and https://*.claude.ai/* (Anthropic's callback)
+ *   - https://claude.com/* and https://*.claude.com/* — Anthropic's docs
+ *     instruct servers to allowlist BOTH domains: "this callback URL may
+ *     change to https://claude.com/api/mcp/auth_callback ... please
+ *     allowlist this callback URL as well". Claude Desktop's Connect flow
+ *     dead-ended before the consent page when only claude.ai was allowed
+ *     (observed 2026-06-10).
  *   - http://localhost:* / http://127.0.0.1:* (dev / loopback callbacks)
  * Anything else is rejected with 400.
+ *
+ * Exported for tests.
  */
-function isAllowedRedirectUri(uri: string): boolean {
+export function isAllowedRedirectUri(uri: string): boolean {
   let u: URL;
   try {
     u = new URL(uri);
@@ -421,7 +429,10 @@ function isAllowedRedirectUri(uri: string): boolean {
     return false;
   }
   if (u.protocol === "https:") {
-    return u.hostname === "claude.ai" || u.hostname.endsWith(".claude.ai");
+    return (
+      u.hostname === "claude.ai" || u.hostname.endsWith(".claude.ai") ||
+      u.hostname === "claude.com" || u.hostname.endsWith(".claude.com")
+    );
   }
   if (u.protocol === "http:") {
     return u.hostname === "localhost" || u.hostname === "127.0.0.1";
@@ -446,7 +457,7 @@ export function attachConsentRoutes(
       if (!isAllowedRedirectUri(params.redirectUri)) {
         log.warn(`OAuth /authorize REJECTED: disallowed redirect_uri ${params.redirectUri}`);
         res.status(400).type("text/plain").send(
-          "redirect_uri is not on the allowlist. Allowed: https://*.claude.ai, http://localhost:*, http://127.0.0.1:*.",
+          "redirect_uri is not on the allowlist. Allowed: https://*.claude.ai, https://*.claude.com, http://localhost:*, http://127.0.0.1:*.",
         );
         return;
       }
