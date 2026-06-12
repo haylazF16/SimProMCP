@@ -43,7 +43,13 @@ import {
 } from "./tokens.js";
 import { recordAudit } from "./audit.js";
 import { RateLimiter } from "./rateLimit.js";
-import { GoldmanOAuthProvider, attachConsentRoutes } from "./oauth.js";
+import {
+  GoldmanOAuthProvider,
+  attachConsentRoutes,
+  buildProtectedResourceMetadata,
+  protectedResourceMetadataUrl,
+  wwwAuthenticateChallenge,
+} from "./oauth.js";
 import { attachUnenrollRoutes } from "./unenroll.js";
 import { attachAdminRoutes } from "./admin.js";
 
@@ -288,6 +294,28 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
   attachAdminRoutes(adminRouter, config);
   app.use(adminRouter);
 
+  // OAuth 2.0 Protected Resource Metadata (RFC 9728), one document per MCP
+  // resource. Claude's connector client fetches this (or reads the
+  // WWW-Authenticate header on the 401, set in handleMcp) to discover the
+  // authorization server. Without it the Connect flow loops on claude.com and
+  // never reaches our consent page. Registered BEFORE mcpAuthRouter so it wins.
+  const issuerOrigin = issuerUrl.origin;
+  const RESOURCE_NAMES: Record<CompanyKey, string> = {
+    plumbing: "Goldman Simpro MCP (Plumbing)",
+    energy: "Goldman Simpro MCP (Energy)",
+  };
+  for (const company of Object.keys(RESOURCE_NAMES) as CompanyKey[]) {
+    app.get(`/.well-known/oauth-protected-resource/mcp/${company}`, (_req, res) => {
+      res.json(
+        buildProtectedResourceMetadata({
+          issuerOrigin,
+          resourcePath: `/mcp/${company}`,
+          resourceName: RESOURCE_NAMES[company],
+        }),
+      );
+    });
+  }
+
   // SDK's auth router provides /token, /register, /.well-known/* — for
   // /authorize, we already attached our own above which returns the consent
   // page. The SDK router's /authorize never gets hit because Express matches
@@ -334,6 +362,19 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
     const auth = authenticate(config.SIMPRO_TOKENS_FILE, req.headers["authorization"]);
     if (!auth.ok) {
       log.warn(`HTTP ${req.method} ${req.path} -> ${auth.status} ${auth.reason}`);
+      // RFC 9728: a 401 from a protected resource MUST advertise where to
+      // authenticate. Claude's connector client reads resource_metadata from
+      // this header to discover the auth server and start the OAuth flow —
+      // without it the Connect flow loops on claude.com (observed 2026-06-12).
+      if (auth.status === 401) {
+        res.setHeader(
+          "WWW-Authenticate",
+          wwwAuthenticateChallenge(
+            protectedResourceMetadataUrl(issuerOrigin, `/mcp/${company}`),
+            auth.reason,
+          ),
+        );
+      }
       res.status(auth.status).json({
         jsonrpc: "2.0",
         error: { code: -32001, message: `Auth failed: ${auth.reason}` },

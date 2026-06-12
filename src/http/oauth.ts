@@ -440,6 +440,48 @@ export function isAllowedRedirectUri(uri: string): boolean {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// OAuth 2.0 Protected Resource Metadata (RFC 9728) + WWW-Authenticate.
+//
+// Claude's connector client (MCP auth spec 2025-06-18) discovers WHERE to log
+// the user in by reading EITHER the `WWW-Authenticate` header on the resource's
+// 401 OR the `/.well-known/oauth-protected-resource<resourcePath>` document.
+// Our custom /mcp/:company auth returns a bare 401 and the SDK router was
+// mounted without resourceServerUrl, so BOTH signals were missing and the
+// client looped on claude.com without ever reaching our consent page
+// (observed 2026-06-12). These helpers produce the missing signals.
+// ---------------------------------------------------------------------------
+
+/**
+ * The RFC 9728 metadata document for one MCP resource (e.g. /mcp/plumbing).
+ * `authorization_servers` points at our issuer, whose
+ * /.well-known/oauth-authorization-server the client then fetches.
+ */
+export function buildProtectedResourceMetadata(opts: {
+  issuerOrigin: string; // e.g. https://goldman-ubuntu.tail6b5a4b.ts.net (no trailing slash)
+  resourcePath: string; // e.g. /mcp/plumbing
+  resourceName: string;
+}): Record<string, unknown> {
+  return {
+    resource: `${opts.issuerOrigin}${opts.resourcePath}`,
+    authorization_servers: [`${opts.issuerOrigin}/`],
+    bearer_methods_supported: ["header"],
+    scopes_supported: [],
+    resource_name: opts.resourceName,
+  };
+}
+
+/** Where the metadata doc for a resource lives (RFC 9728 path insertion). */
+export function protectedResourceMetadataUrl(issuerOrigin: string, resourcePath: string): string {
+  return `${issuerOrigin}/.well-known/oauth-protected-resource${resourcePath}`;
+}
+
+/** WWW-Authenticate challenge value advertising the resource metadata URL. */
+export function wwwAuthenticateChallenge(resourceMetadataUrl: string, errorDescription = "Authentication required"): string {
+  const safeDesc = errorDescription.replace(/["\\\r\n]/g, " ");
+  return `Bearer error="invalid_token", error_description="${safeDesc}", resource_metadata="${resourceMetadataUrl}"`;
+}
+
 export function attachConsentRoutes(
   router: Router,
   provider: GoldmanOAuthProvider,
