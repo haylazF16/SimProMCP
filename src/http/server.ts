@@ -35,7 +35,7 @@ import { SimproClient } from "../simpro/client.js";
 import { registerAllTools } from "../tools/index.js";
 import { setToolResultHook } from "../tools/_shared.js";
 import {
-  authenticate,
+  authenticateOrDefault,
   COMPANY_IDS,
   CompanyKey,
   TokenRecord,
@@ -359,7 +359,10 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
   // ---- The MCP endpoint -------------------------------------------------
   const handleMcp = (company: CompanyKey) => async (req: Request, res: Response) => {
     const t0 = Date.now();
-    const auth = authenticate(config.SIMPRO_TOKENS_FILE, req.headers["authorization"]);
+    const auth = authenticateOrDefault(config.SIMPRO_TOKENS_FILE, req.headers["authorization"], {
+      requireAuth: config.SIMPRO_REQUIRE_AUTH,
+      company,
+    });
     if (!auth.ok) {
       log.warn(`HTTP ${req.method} ${req.path} -> ${auth.status} ${auth.reason}`);
       // RFC 9728: a 401 from a protected resource MUST advertise where to
@@ -435,7 +438,9 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
 
     // Audit log (best-effort, fire-and-forget). Captures who called which
     // tool against which company. Result/duration is captured after the
-    // transport handles the request.
+    // transport handles the request. In no-auth mode the request resolved to
+    // a shared default identity — tag it so the audit trail stays honest.
+    const auditUser = auth.viaDefault ? `${auth.record.name} (no-auth)` : auth.record.name;
     const rpc = describeRpcMethod(req.body);
 
     try {
@@ -446,7 +451,7 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
       touchTokenLastUsed(config.SIMPRO_TOKENS_FILE, auth.token);
       if (rpc.method === "tools/call" && rpc.toolName) {
         recordAudit(config.SIMPRO_AUDIT_FILE, {
-          user: auth.record.name,
+          user: auditUser,
           company,
           tool: rpc.toolName,
           ok: toolFailure === undefined,
@@ -457,10 +462,10 @@ export async function runHttp({ config }: RunHttpOptions): Promise<void> {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      log.error(`HTTP /mcp/${company} handler error for ${auth.record.name}: ${maskToken(msg)}`);
+      log.error(`HTTP /mcp/${company} handler error for ${auditUser}: ${maskToken(msg)}`);
       if (rpc.method === "tools/call" && rpc.toolName) {
         recordAudit(config.SIMPRO_AUDIT_FILE, {
-          user: auth.record.name,
+          user: auditUser,
           company,
           tool: rpc.toolName,
           ok: false,

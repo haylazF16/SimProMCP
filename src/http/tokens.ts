@@ -156,6 +156,7 @@ export interface AuthResult {
   ok: true;
   token: string;     // the matched token (for logging)
   record: TokenRecord;
+  viaDefault?: boolean; // true when resolved via the no-auth default fallback
 }
 
 export interface AuthFailure {
@@ -195,6 +196,45 @@ export function authenticate(
     return { ok: false, status: 401, reason: "Unknown token" };
   }
   return { ok: true, token, record };
+}
+
+/**
+ * Like authenticate(), but when `requireAuth` is false and the bearer is
+ * missing/invalid, falls back to a DEFAULT identity: the first tokens.json
+ * record with access to the requested company. This powers the "no login,
+ * just works" trial mode (SIMPRO_REQUIRE_AUTH=false) — the /mcp endpoint then
+ * never returns 401, so Claude connects with no consent page or redirect.
+ *
+ * A valid bearer, if supplied, still wins (per-user attribution preserved).
+ * When requireAuth is true, behaviour is identical to authenticate().
+ */
+export function authenticateOrDefault(
+  filePath: string,
+  authorizationHeader: string | undefined,
+  opts: { requireAuth: boolean; company: CompanyKey },
+): AuthResult | AuthFailure {
+  const primary = authenticate(filePath, authorizationHeader);
+  if (primary.ok || opts.requireAuth) return primary;
+  // No/invalid bearer and auth is not required → resolve a default identity.
+  let store: TokensFile;
+  try {
+    store = loadTokens(filePath);
+  } catch (err) {
+    return {
+      ok: false,
+      status: 500,
+      reason: `Server tokens file unreadable: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  const entry = Object.entries(store.tokens).find(([, r]) => r.companyAccess.includes(opts.company));
+  if (!entry) {
+    return {
+      ok: false,
+      status: 503,
+      reason: `No Simpro identity is configured for ${opts.company}. Enrol a user with access to this company.`,
+    };
+  }
+  return { ok: true, token: entry[0], record: entry[1], viaDefault: true };
 }
 
 /**

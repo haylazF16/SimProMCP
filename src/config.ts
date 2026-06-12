@@ -49,6 +49,15 @@ const ConfigSchema = z.object({
     .refine((v) => v.length > 0, "SIMPRO_COMPANY_ID is required"),
   SIMPRO_ENABLE_WRITE_TOOLS: boolFromString.default(false),
   SIMPRO_DRY_RUN: boolFromString.default(true),
+  // When false, the HTTP /mcp endpoints do NOT require a bearer token / OAuth
+  // login — unauthenticated requests fall back to a default Simpro identity
+  // from tokens.json (the first record with access to the requested company).
+  // This makes the connector "just work" with no consent page or redirect,
+  // at the cost of leaving the public endpoint open and dropping per-user
+  // attribution (all calls use the shared default key). Default true (secure).
+  // Set to false ONLY for a trusted/trial deployment; flip back to re-enable
+  // the full OAuth login with zero code changes.
+  SIMPRO_REQUIRE_AUTH: boolFromString.default(true),
   SIMPRO_REQUEST_TIMEOUT_MS: intFromString(12_000, 1_000, 600_000),
   SIMPRO_MAX_PAGE_SIZE: intFromString(100, 1, 1000),
   SIMPRO_DEFAULT_PAGE_SIZE: intFromString(25, 1, 1000),
