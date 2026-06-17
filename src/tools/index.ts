@@ -11,6 +11,7 @@ import { registerInventoryTools } from "./inventory.js";
 import { registerContactTools } from "./contacts.js";
 import { registerSchedulingTools } from "./scheduling.js";
 import { registerFinancialsTools } from "./financials.js";
+import { registerAttachmentTools } from "./attachments.js";
 import type { ToolCtx } from "./_shared.js";
 
 export function registerAllTools(server: McpServer, ctx: ToolCtx) {
@@ -21,6 +22,7 @@ export function registerAllTools(server: McpServer, ctx: ToolCtx) {
   registerInvoiceTools(server, ctx);
   registerTaskTools(server, ctx);
   registerNoteTools(server, ctx);
+  registerAttachmentTools(server, ctx);
   registerSupplierTools(server, ctx);
   registerInventoryTools(server, ctx);
   registerContactTools(server, ctx);
