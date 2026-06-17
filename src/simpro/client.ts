@@ -56,6 +56,9 @@ export class SimproClient {
   put<T = unknown>(path: string, body?: unknown): Promise<T> {
     return this.request<T>("PUT", path, { body });
   }
+  del<T = unknown>(path: string): Promise<T> {
+    return this.request<T>("DELETE", path);
+  }
 
   // ---- core request ------------------------------------------------------
 
