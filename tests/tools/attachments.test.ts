@@ -91,3 +91,72 @@ describe("simpro_list_attachments", () => {
     expect(out).toMatch(/no linked Job/i);
   });
 });
+
+import * as os from "node:os";
+import * as nodePath from "node:path";
+import { promises as fsp } from "node:fs";
+
+describe("simpro_upload_attachment", () => {
+  beforeEach(() => __resetSchemaCacheForTests());
+
+  it("is blocked when writes are disabled", async () => {
+    const { ctx, spy } = makeCtx({ write: false });
+    const out = await callTool(ctx, "simpro_upload_attachment", {
+      confirm: true,
+      entityType: "job",
+      entityId: 1,
+      files: [{ sourceUrl: "https://e.com/a.pdf" }],
+    });
+    expect(out).toMatch(/Write tools are disabled/i);
+    expect(spy.posts).toHaveLength(0);
+  });
+
+  it("requires confirm:true (preview, no POST)", async () => {
+    const { ctx, spy } = makeCtx();
+    const out = await callTool(ctx, "simpro_upload_attachment", {
+      confirm: false,
+      entityType: "job",
+      entityId: 1,
+      files: [{ filePath: "/tmp/whatever.pdf" }],
+    });
+    expect(out).toMatch(/Confirmation required/i);
+    expect(spy.posts).toHaveLength(0);
+  });
+
+  it("uploads a local file and reports per-file success", async () => {
+    const dir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), "up-"));
+    const p = nodePath.join(dir, "docket.pdf");
+    await fsp.writeFile(p, "PDF");
+    const { ctx, spy } = makeCtx();
+    const out = await callTool(ctx, "simpro_upload_attachment", {
+      confirm: true,
+      entityType: "job",
+      entityId: 132277,
+      files: [{ filePath: p }],
+      public: false,
+    });
+    expect(spy.posts[0].path).toBe("/api/v1.0/companies/4/jobs/132277/attachments/files/");
+    const payload = spy.posts[0].payload as Record<string, unknown>;
+    expect(payload.Filename).toBe("docket.pdf");
+    expect(payload.Public).toBe(false);
+    expect(Buffer.from(payload.Base64Data as string, "base64").toString()).toBe("PDF");
+    expect(out).toMatch(/1 uploaded, 0 failed/);
+    await fsp.rm(dir, { recursive: true, force: true });
+  });
+
+  it("continues a batch past one bad file (partial failure)", async () => {
+    const dir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), "up-"));
+    const good = nodePath.join(dir, "ok.txt");
+    await fsp.writeFile(good, "ok");
+    const { ctx, spy } = makeCtx();
+    const out = await callTool(ctx, "simpro_upload_attachment", {
+      confirm: true,
+      entityType: "job",
+      entityId: 1,
+      files: [{ filePath: good }, { filePath: nodePath.join(dir, "missing.txt") }],
+    });
+    expect(spy.posts).toHaveLength(1); // only the good file POSTed
+    expect(out).toMatch(/1 uploaded, 1 failed/);
+    await fsp.rm(dir, { recursive: true, force: true });
+  });
+});
