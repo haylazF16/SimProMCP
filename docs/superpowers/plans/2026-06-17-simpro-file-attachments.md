@@ -1569,19 +1569,22 @@ git commit -m "fix(notes): remove false 'no attachment API' claim; reword link t
 
 **Files:** none (verification)
 
-- [ ] **Step 1: Type-check / build**
+- [x] **Step 1: Type-check / build**
 
 Run: `npm run build`
 Expected: no TypeScript errors; `dist/` regenerated (includes `dist/tools/attachments.js`, `dist/utils/files.js`).
+Result: `npm run build` passed with no TypeScript errors; `dist/tools/attachments.js` and `dist/utils/files.js` regenerated on disk.
 
-- [ ] **Step 2: Run the full test suite**
+- [x] **Step 2: Run the full test suite**
 
 Run: `npm test`
 Expected: all suites green, including the new `tests/utils/files.test.ts`, `tests/simpro/endpointsAttachments.test.ts`, `tests/simpro/clientDelete.test.ts`, `tests/tools/attachments.test.ts`, `tests/tools/attachmentsRegistered.test.ts`, `tests/tools/notesRewording.test.ts`, `tests/config.attachments.test.ts`.
+Result: `vitest run` → 31 test files passed, 205 tests passed, 0 failed. All seven new attachment suites green.
 
-- [ ] **Step 3: Fix any failures, then re-run** until green.
+- [x] **Step 3: Fix any failures, then re-run** until green.
+Result: no failures; nothing to fix.
 
-- [ ] **Step 4: Final commit (if build produced dist changes that are tracked)**
+- [x] **Step 4: Final commit (if build produced dist changes that are tracked)**
 
 ```bash
 git add -A
@@ -1589,6 +1592,7 @@ git commit -m "chore(attachments): build dist for Simpro attachment tools (Build
 ```
 
 (If `dist/` is gitignored, skip — nothing to commit.)
+Result: `dist/` is gitignored (0 tracked dist files), so per the spec's own conditional this commit was skipped — no `chore(attachments): build dist...` commit exists. The build artifacts live untracked on disk as intended.
 
 ---
 
