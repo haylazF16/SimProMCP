@@ -37,20 +37,16 @@ export function registerNoteTools(server: McpServer, ctx: ToolCtx) {
       }),
   );
 
-  // ---- attach file link (workaround for missing attachment API) ----
-  // Simpro v1.0 REST API does NOT expose attachments/files/documents (verified
-  // by exhaustive endpoint sweep). The closest workaround is to upload the
-  // file to a SharePoint/OneDrive folder + post a link to it as a job note.
-  // This tool standardises that flow: the note shows up clearly in the
-  // Simpro web UI's job timeline as "ATTACHMENT: <description> -> <url>"
-  // and a click takes the user to the actual file.
-  //
-  // For a true attachment (file binary stored inside Simpro) the user would
-  // need Simpro's separate "Files API" product — ask Simpro support about it.
+  // ---- attach a file LINK as a job note (deliberate choice, not a workaround) ----
+  // Simpro's v1.0 REST API DOES support native binary attachments — see
+  // src/tools/attachments.ts (simpro_upload_attachment). This tool is the
+  // alternative for cases where you'd rather keep the file in its existing
+  // store (SharePoint/OneDrive/Dropbox) and just record a clickable pointer in
+  // the job timeline — e.g. very large files, or links that should stay live.
   registerTool(
     server,
     "simpro_attach_file_link_to_job",
-    "Workaround for Simpro's missing attachment API: post a link to a file (stored in SharePoint, OneDrive, Dropbox, etc.) as a structured job note. The file itself stays where it is; the job in Simpro shows a clearly labelled clickable note pointing at it. Requires confirm=true. NOTE: this is NOT a true Simpro attachment — Simpro's REST API doesn't support binary file uploads. For native attachments, use the Simpro web UI directly, or contact Simpro support about their separate Files API product.",
+    "Post a link to an externally-stored file (SharePoint, OneDrive, Dropbox, etc.) as a structured job note. The file stays where it is; the job timeline shows a clearly labelled clickable note. Requires confirm=true. NOTE: for a TRUE Simpro attachment (bytes stored in Simpro), use simpro_upload_attachment instead — this link tool is for when you'd rather keep the file external (e.g. very large files).",
     () => (
     {
       confirm: confirmSchema,
@@ -66,9 +62,10 @@ export function registerNoteTools(server: McpServer, ctx: ToolCtx) {
     () => async (args) =>
       safeRun(async () => {
         const noteText =
-          `ATTACHMENT: ${args.description}\n` +
+          `ATTACHMENT (link): ${args.description}\n` +
           `Link: ${args.fileUrl}\n` +
-          `(Linked via Goldman Simpro AI tool — file stored externally, Simpro REST API does not support binary attachments.)`;
+          `(Linked via Goldman Simpro AI tool — file stored externally. For a native ` +
+          `Simpro attachment, simpro_upload_attachment uploads the bytes directly.)`;
         const payload = pruneEmpty({
           Note: noteText,
           Visibility: args.visibility,
