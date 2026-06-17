@@ -69,6 +69,12 @@ const ConfigSchema = z.object({
   // into; the MCP reads them back by stagingRef. Relative default for dev; set
   // an absolute path on the server (e.g. /var/lib/simpro-mcp/staging).
   SIMPRO_STAGING_DIR: z.string().default("./staging"),
+  // In HTTP (multi-user) mode, downloads saved to disk are CONFINED to this
+  // directory: a caller-supplied saveDir/savePath is resolved under it and any
+  // attempt to escape (absolute path, "..") is rejected, so a remote user can
+  // never overwrite server files like .env or tokens.json. Ignored in STDIO
+  // mode, where saves go to the caller's exact path (their own machine).
+  SIMPRO_DOWNLOAD_DIR: z.string().default("./downloads"),
 
   // HTTP mode tunables (ignored in STDIO mode).
   // Default bind 127.0.0.1 = localhost-only for safety. Set to 0.0.0.0 to

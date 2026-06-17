@@ -28,4 +28,26 @@ describe("attachment config", () => {
     process.env.SIMPRO_MAX_ATTACHMENT_MB = "50";
     expect(loadConfig().SIMPRO_MAX_ATTACHMENT_MB).toBe(50);
   });
+
+  it("defaults SIMPRO_DOWNLOAD_DIR to ./downloads", () => {
+    baseEnv();
+    delete process.env.SIMPRO_DOWNLOAD_DIR;
+    expect(loadConfig().SIMPRO_DOWNLOAD_DIR).toBe("./downloads");
+  });
+
+  it("honours an explicit SIMPRO_DOWNLOAD_DIR", () => {
+    baseEnv();
+    process.env.SIMPRO_DOWNLOAD_DIR = "/var/lib/simpro-mcp/downloads";
+    expect(loadConfig().SIMPRO_DOWNLOAD_DIR).toBe("/var/lib/simpro-mcp/downloads");
+  });
+
+  it("throws (does not clamp) for an out-of-range or non-numeric SIMPRO_MAX_ATTACHMENT_MB", () => {
+    for (const bad of ["0", "999", "abc"]) {
+      baseEnv();
+      process.env.SIMPRO_MAX_ATTACHMENT_MB = bad;
+      expect(() => loadConfig(), `expected loadConfig() to throw for "${bad}"`).toThrow(
+        /configuration is invalid/i,
+      );
+    }
+  });
 });

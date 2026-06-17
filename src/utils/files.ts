@@ -78,7 +78,70 @@ export function stagingPathForRef(stagingDir: string, ref: string): string {
   return path.join(stagingDir, ref);
 }
 
+/**
+ * Resolve `candidate` (relative or absolute) to an absolute path GUARANTEED to
+ * sit inside `baseDir`, or throw. Used to confine multi-user filesystem writes
+ * so a caller-supplied path can never escape (via "..", an absolute path, or a
+ * symlink-style sequence) to clobber server files. A candidate that resolves to
+ * baseDir itself (no filename) is also rejected.
+ */
+export function confineWithin(baseDir: string, candidate: string): string {
+  const baseAbs = path.resolve(baseDir);
+  // path.resolve lets an absolute candidate override baseAbs entirely, which is
+  // exactly the escape we then detect via the relative-path check below.
+  const destAbs = path.resolve(baseAbs, candidate);
+  const rel = path.relative(baseAbs, destAbs);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error(
+      `Refusing to write "${candidate}" outside the allowed directory ${baseAbs}.`,
+    );
+  }
+  return destAbs;
+}
+
 const HTML_CONTENT_TYPE = /text\/html|application\/xhtml/i;
+
+/**
+ * Block the obvious server-side-request-forgery targets before fetching a
+ * caller-supplied sourceUrl: non-http(s) schemes and literal loopback / private
+ * / link-local hosts (incl. the cloud-metadata IP). This is defence-in-depth on
+ * top of write-gating; it does NOT resolve DNS, so a hostname that resolves to a
+ * private IP (DNS rebinding) is a documented residual — pair with a network
+ * egress policy for full coverage.
+ */
+const PRIVATE_HOST_PATTERNS: RegExp[] = [
+  /^localhost$/i,
+  /^0\.0\.0\.0$/,
+  /^127\./,
+  /^10\./,
+  /^192\.168\./,
+  /^169\.254\./, // link-local incl. 169.254.169.254 cloud metadata
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^::1$/,
+  /^::ffff:127\./i,
+  /^f[cd][0-9a-f]{2}:/i, // fc00::/7 unique-local
+  /^fe80:/i, // link-local
+  /\.internal$/i, // metadata.google.internal & friends
+];
+
+export function assertFetchableUrl(raw: string): URL {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error(`sourceUrl is not a valid URL: "${raw}".`);
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    throw new Error(`sourceUrl must use http or https, not "${u.protocol}".`);
+  }
+  const host = u.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  if (PRIVATE_HOST_PATTERNS.some((re) => re.test(host))) {
+    throw new Error(
+      `sourceUrl host "${u.hostname}" is a loopback/private/link-local address and is not allowed.`,
+    );
+  }
+  return u;
+}
 
 /**
  * Resolve exactly one upload source to base64 bytes, enforcing the size guard.
@@ -87,7 +150,7 @@ const HTML_CONTENT_TYPE = /text\/html|application\/xhtml/i;
  */
 export async function resolveFileToBase64(
   source: FileSource,
-  opts: { maxBytes: number; stagingDir: string },
+  opts: { maxBytes: number; stagingDir: string; transport?: string },
 ): Promise<ResolvedFile> {
   const which = pickSource(source);
   let bytes: Buffer;
@@ -95,7 +158,9 @@ export async function resolveFileToBase64(
   let filename = deriveFilename(source);
 
   if (which === "sourceUrl") {
-    const res = await fetch(source.sourceUrl as string);
+    assertFetchableUrl(source.sourceUrl as string);
+    // Bound the fetch so an unresponsive host can't hang the request forever.
+    const res = await fetch(source.sourceUrl as string, { signal: AbortSignal.timeout(30_000) });
     if (!res.ok) {
       throw new Error(`Could not download sourceUrl (HTTP ${res.status}). Use a direct-download link.`);
     }
@@ -109,6 +174,16 @@ export async function resolveFileToBase64(
     bytes = Buffer.from(await res.arrayBuffer());
     if (ct) mimeType = ct.split(";")[0].trim();
   } else if (which === "filePath") {
+    // filePath reads arbitrary server-side files. That is fine on a single-user
+    // STDIO install (the caller's own machine) but is a local-file-disclosure
+    // vector on the shared HTTP server, so it is disabled there — remote users
+    // must drop a file on the portal (stagingRef) or pass a sourceUrl.
+    if (opts.transport === "http") {
+      throw new Error(
+        "filePath uploads are disabled on the shared server. Drop the file on the portal " +
+        "(use its stagingRef) or pass a direct-download sourceUrl instead.",
+      );
+    }
     bytes = await fs.readFile(source.filePath as string);
     mimeType = guessMime(filename);
   } else {
@@ -116,7 +191,14 @@ export async function resolveFileToBase64(
     let entries: string[];
     try {
       entries = await fs.readdir(dir);
-    } catch {
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException)?.code;
+      if (code && code !== "ENOENT") {
+        // A real FS fault (permissions, too many open files, not-a-dir) is NOT
+        // the same as an expired ref — surface it so the operator fixes the
+        // right thing instead of chasing a phantom "expired" message.
+        throw new Error(`Staging ref "${source.stagingRef}" could not be read (${code}).`);
+      }
       throw new Error(`Staging ref "${source.stagingRef}" not found or expired.`);
     }
     const fileName = entries.find((e) => !e.startsWith("."));
@@ -135,11 +217,27 @@ export async function resolveFileToBase64(
   return { filename, base64: bytes.toString("base64"), mimeType, sizeBytes: bytes.byteLength };
 }
 
-/** Decode base64 and write it to destPath (creating parent dirs). Returns the absolute path. */
-export async function writeBase64ToPath(base64: string, destPath: string): Promise<string> {
+/**
+ * Decode base64 and write it to destPath (creating parent dirs). Returns the
+ * absolute path. With `exclusive: true` the write uses the "wx" flag, so an
+ * existing file is never silently overwritten (EEXIST surfaces as an error) —
+ * used on the confined HTTP download path as belt-and-braces against clobber.
+ */
+export async function writeBase64ToPath(
+  base64: string,
+  destPath: string,
+  opts: { exclusive?: boolean } = {},
+): Promise<string> {
   const abs = path.resolve(destPath);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, Buffer.from(base64, "base64"));
+  try {
+    await fs.writeFile(abs, Buffer.from(base64, "base64"), opts.exclusive ? { flag: "wx" } : undefined);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code === "EEXIST") {
+      throw new Error(`A file already exists at ${abs}; refusing to overwrite it.`);
+    }
+    throw e;
+  }
   return abs;
 }
 

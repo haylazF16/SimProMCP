@@ -15,7 +15,10 @@ import {
   resolveFileToBase64,
   writeBase64ToPath,
   clearStaging,
+  confineWithin,
+  type FileSource,
 } from "../utils/files.js";
+import { log } from "../logger.js";
 import {
   ToolCtx,
   registerTool,
@@ -26,6 +29,24 @@ import {
   jsonBlock,
   type McpTextResponse,
 } from "./_shared.js";
+
+/** Bytes in one binary megabyte — the unit for the SIMPRO_MAX_ATTACHMENT_MB guard. */
+const BYTES_PER_MB = 1_048_576;
+
+/**
+ * Filename to SHOW in a preview/error row (the success path uses the real name
+ * resolved from disk/Simpro). For a staged file with no explicit name we'd
+ * otherwise leak the opaque ref token, so show a neutral placeholder instead.
+ */
+function displayName(f: FileSource): string {
+  if (f.filename && f.filename.trim()) return f.filename.trim();
+  try {
+    if (pickSource(f) === "stagingRef") return "(staged file)";
+  } catch {
+    /* zero/multi-source — fall through to the best-effort basename */
+  }
+  return deriveFilename(f);
+}
 
 const entityTypeSchema = z
   .enum(ATTACHMENT_ENTITY_TYPES)
@@ -134,9 +155,20 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
         const uploadPath = ctx.client.companyPath(attachmentFiles(parent));
 
         // Validate sources up front so the confirm/dry-run preview is accurate.
-        const preview = args.files.map((f: Record<string, string>) => {
-          const which = pickSource(f);
-          return { source: which, value: f[which], filename: deriveFilename(f) };
+        // A malformed entry (zero or multiple sources) becomes one "invalid"
+        // row rather than aborting the whole batch — the real per-file loop
+        // below records the same failure and continues past it.
+        const preview = args.files.map((f: FileSource) => {
+          try {
+            const which = pickSource(f);
+            return { source: which, value: f[which], filename: displayName(f) };
+          } catch (err) {
+            return {
+              source: "invalid",
+              filename: displayName(f),
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
         });
         const blocked = writeGuard(ctx, {
           confirm: args.confirm,
@@ -147,13 +179,14 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
         });
         if (blocked) return blocked;
 
-        const maxBytes = ctx.config.SIMPRO_MAX_ATTACHMENT_MB * 1_048_576;
+        const maxBytes = ctx.config.SIMPRO_MAX_ATTACHMENT_MB * BYTES_PER_MB;
         const results: Array<Record<string, unknown>> = [];
         for (const f of args.files) {
           try {
             const resolved = await resolveFileToBase64(f, {
               maxBytes,
               stagingDir: ctx.config.SIMPRO_STAGING_DIR,
+              transport: ctx.config.SIMPRO_TRANSPORT,
             });
             const body: Record<string, unknown> = {
               Filename: resolved.filename,
@@ -164,11 +197,15 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
             const resp = await ctx.client.post<{ ID?: number }>(uploadPath, body);
             results.push({ filename: resolved.filename, status: "created", fileId: resp?.ID });
             if (f.stagingRef) {
-              await clearStaging(ctx.config.SIMPRO_STAGING_DIR, f.stagingRef).catch(() => {});
+              await clearStaging(ctx.config.SIMPRO_STAGING_DIR, f.stagingRef).catch((e) =>
+                log.warn(
+                  `Failed to clear staging ref ${f.stagingRef}: ${e instanceof Error ? e.message : String(e)}`,
+                ),
+              );
             }
           } catch (err) {
             results.push({
-              filename: deriveFilename(f),
+              filename: displayName(f),
               status: "error",
               error: err instanceof Error ? err.message : String(err),
             });
@@ -176,9 +213,12 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
         }
         const ok = results.filter((r) => r.status === "created").length;
         const failed = results.length - ok;
+        // isError on ANY per-file failure: the audit hook records the call
+        // outcome from isError, and a partial failure logged as ok:true is the
+        // exact "422 in journalctl, ok:true in audit" bug the hook exists for.
         return textResponse(
           `${ok} uploaded, ${failed} failed.\n` + jsonBlock("Results", results),
-          ok === 0,
+          failed > 0,
         );
       }),
   );
@@ -207,7 +247,8 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
     () => async (args) =>
       safeRun(async () => {
         const parent = await resolveParentSuffix(ctx, args.entityType, args.entityId);
-        const maxBytes = ctx.config.SIMPRO_MAX_ATTACHMENT_MB * 1_048_576;
+        const maxBytes = ctx.config.SIMPRO_MAX_ATTACHMENT_MB * BYTES_PER_MB;
+        const httpMode = ctx.config.SIMPRO_TRANSPORT === "http";
         const content: McpContent[] = [];
         const results: Array<Record<string, unknown>> = [];
 
@@ -221,11 +262,28 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
             const b64 = rec.Base64Data ?? "";
             const mime = rec.MimeType ?? "application/octet-stream";
             const name = rec.Filename ?? `file-${f.fileId}`;
-            const sizeBytes = Math.floor((b64.length * 3) / 4);
+            // No bytes = a failed download, NOT a success. Without this guard a
+            // missing/empty Base64Data writes a 0-byte file reported as "saved"
+            // (silent data corruption) or inlines an empty payload.
+            if (!b64.trim()) {
+              results.push({
+                fileId: f.fileId,
+                filename: name,
+                status: "error",
+                error: `Simpro returned no file bytes for #${f.fileId} (empty or missing Base64Data).`,
+              });
+              continue;
+            }
+            const sizeBytes = Buffer.byteLength(b64, "base64");
 
             if (f.savePath || args.saveDir) {
-              const dest = f.savePath ?? path.join(args.saveDir as string, name);
-              const abs = await writeBase64ToPath(b64, dest);
+              let dest = f.savePath ?? path.join(args.saveDir as string, path.basename(name));
+              // On the shared HTTP server, confine the write under SIMPRO_DOWNLOAD_DIR
+              // (treating the caller value as relative to it) and refuse to clobber,
+              // so a remote caller can't overwrite .env/tokens.json/dist. STDIO mode
+              // writes to the caller's exact path — it's their own machine.
+              if (httpMode) dest = confineWithin(ctx.config.SIMPRO_DOWNLOAD_DIR, dest);
+              const abs = await writeBase64ToPath(b64, dest, { exclusive: httpMode });
               results.push({ fileId: f.fileId, filename: name, status: "saved", savedTo: abs });
             } else if (mime.startsWith("image/")) {
               if (sizeBytes > maxBytes) {
@@ -233,7 +291,7 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
                   fileId: f.fileId,
                   filename: name,
                   status: "error",
-                  error: `Image too large to inline (${(sizeBytes / 1_048_576).toFixed(1)} MB); pass saveDir.`,
+                  error: `Image too large to inline (${(sizeBytes / BYTES_PER_MB).toFixed(1)} MB); pass saveDir.`,
                 });
               } else {
                 content.push({ type: "image", data: b64, mimeType: mime });
@@ -245,7 +303,7 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
                   fileId: f.fileId,
                   filename: name,
                   status: "error",
-                  error: `Too large to inline (${(sizeBytes / 1_048_576).toFixed(1)} MB); pass saveDir.`,
+                  error: `Too large to inline (${(sizeBytes / BYTES_PER_MB).toFixed(1)} MB); pass saveDir.`,
                 });
               } else {
                 content.push({ type: "text", text: jsonBlock(`${name} (base64)`, { mimeType: mime, base64: b64 }) });
@@ -274,7 +332,9 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
         const meta = results.filter((r) => r.status === "metadata").length;
         const summary = `${delivered} delivered, ${meta} metadata-only, ${failed} failed.`;
         content.unshift({ type: "text", text: `${summary}\n${jsonBlock("Files", results)}` });
-        return multiResponse(content, delivered === 0 && failed > 0);
+        // Any per-file failure flags the call as an error for the audit hook; a
+        // pure metadata-only response (no failures) is NOT an error.
+        return multiResponse(content, failed > 0);
       }),
   );
 
@@ -312,7 +372,8 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
           }
         }
         const ok = results.filter((r) => r.status === "deleted").length;
-        return textResponse(`${ok} deleted, ${results.length - ok} failed.\n` + jsonBlock("Results", results), ok === 0);
+        const failed = results.length - ok;
+        return textResponse(`${ok} deleted, ${failed} failed.\n` + jsonBlock("Results", results), failed > 0);
       }),
   );
 }
