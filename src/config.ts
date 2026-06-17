@@ -62,6 +62,14 @@ const ConfigSchema = z.object({
   SIMPRO_MAX_PAGE_SIZE: intFromString(100, 1, 1000),
   SIMPRO_DEFAULT_PAGE_SIZE: intFromString(25, 1, 1000),
 
+  // Max size (MB) for a single attachment upload or inline download. Base64
+  // holds the whole file in memory and inflates ~33%, so keep this modest.
+  SIMPRO_MAX_ATTACHMENT_MB: intFromString(20, 1, 200),
+  // Directory the portal drag-and-drop page (Build 1b) writes staged files
+  // into; the MCP reads them back by stagingRef. Relative default for dev; set
+  // an absolute path on the server (e.g. /var/lib/simpro-mcp/staging).
+  SIMPRO_STAGING_DIR: z.string().default("./staging"),
+
   // HTTP mode tunables (ignored in STDIO mode).
   // Default bind 127.0.0.1 = localhost-only for safety. Set to 0.0.0.0 to
   // make the server reachable from other PCs on the LAN.
