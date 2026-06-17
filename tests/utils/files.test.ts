@@ -121,3 +121,29 @@ describe("resolveFileToBase64", () => {
     }
   });
 });
+
+import { writeBase64ToPath, clearStaging } from "../../src/utils/files.js";
+
+describe("writeBase64ToPath + clearStaging", () => {
+  let dir2: string;
+  beforeEach(async () => {
+    dir2 = await fsp.mkdtemp(nodePath.join(os.tmpdir(), "simpro-out-"));
+  });
+  afterEach(async () => {
+    await fsp.rm(dir2, { recursive: true, force: true });
+  });
+
+  it("writes base64 to a path, creating parent dirs, and returns the absolute path", async () => {
+    const dest = nodePath.join(dir2, "nested", "out.txt");
+    const abs = await writeBase64ToPath(Buffer.from("hi").toString("base64"), dest);
+    expect(await fsp.readFile(abs, "utf8")).toBe("hi");
+  });
+
+  it("clearStaging removes the ref directory", async () => {
+    const refDir = nodePath.join(dir2, "refToClear");
+    await fsp.mkdir(refDir, { recursive: true });
+    await fsp.writeFile(nodePath.join(refDir, "f.txt"), "x");
+    await clearStaging(dir2, "refToClear");
+    await expect(fsp.readdir(refDir)).rejects.toBeTruthy();
+  });
+});

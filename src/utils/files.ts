@@ -134,3 +134,17 @@ export async function resolveFileToBase64(
   }
   return { filename, base64: bytes.toString("base64"), mimeType, sizeBytes: bytes.byteLength };
 }
+
+/** Decode base64 and write it to destPath (creating parent dirs). Returns the absolute path. */
+export async function writeBase64ToPath(base64: string, destPath: string): Promise<string> {
+  const abs = path.resolve(destPath);
+  await fs.mkdir(path.dirname(abs), { recursive: true });
+  await fs.writeFile(abs, Buffer.from(base64, "base64"));
+  return abs;
+}
+
+/** Remove a staging ref directory after a successful upload. Best-effort. */
+export async function clearStaging(stagingDir: string, ref: string): Promise<void> {
+  const dir = stagingPathForRef(stagingDir, ref);
+  await fs.rm(dir, { recursive: true, force: true });
+}
