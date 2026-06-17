@@ -36,3 +36,88 @@ describe("files.ts pure helpers", () => {
     expect(stagingPathForRef("/staging", "abc123XYZ")).toContain("abc123XYZ");
   });
 });
+
+import { afterEach, beforeEach } from "vitest";
+import * as os from "node:os";
+import * as nodePath from "node:path";
+import { promises as fsp } from "node:fs";
+import { resolveFileToBase64 } from "../../src/utils/files.js";
+
+describe("resolveFileToBase64", () => {
+  let dir: string;
+  beforeEach(async () => {
+    dir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), "simpro-files-"));
+  });
+  afterEach(async () => {
+    await fsp.rm(dir, { recursive: true, force: true });
+  });
+
+  it("reads a local filePath into base64 with a guessed mime", async () => {
+    const p = nodePath.join(dir, "note.txt");
+    await fsp.writeFile(p, "hello");
+    const r = await resolveFileToBase64({ filePath: p }, { maxBytes: 1000, stagingDir: dir });
+    expect(Buffer.from(r.base64, "base64").toString()).toBe("hello");
+    expect(r.filename).toBe("note.txt");
+    expect(r.mimeType).toBe("text/plain");
+    expect(r.sizeBytes).toBe(5);
+  });
+
+  it("rejects a file over the size guard", async () => {
+    const p = nodePath.join(dir, "big.bin");
+    await fsp.writeFile(p, Buffer.alloc(2048));
+    await expect(
+      resolveFileToBase64({ filePath: p }, { maxBytes: 1024, stagingDir: dir }),
+    ).rejects.toThrow(/over the/i);
+  });
+
+  it("reads a staged file by ref from <stagingDir>/<ref>/<filename>", async () => {
+    const refDir = nodePath.join(dir, "ref123ABC");
+    await fsp.mkdir(refDir, { recursive: true });
+    await fsp.writeFile(nodePath.join(refDir, "docket.pdf"), "PDFBYTES");
+    const r = await resolveFileToBase64({ stagingRef: "ref123ABC" }, { maxBytes: 1000, stagingDir: dir });
+    expect(r.filename).toBe("docket.pdf");
+    expect(r.mimeType).toBe("application/pdf");
+    expect(Buffer.from(r.base64, "base64").toString()).toBe("PDFBYTES");
+  });
+
+  it("errors clearly when a staging ref is missing", async () => {
+    await expect(
+      resolveFileToBase64({ stagingRef: "missing99" }, { maxBytes: 1000, stagingDir: dir }),
+    ).rejects.toThrow(/not found or expired/i);
+  });
+
+  it("detects an HTML share page on sourceUrl and refuses it", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response("<html>login</html>", {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      })) as typeof fetch;
+    try {
+      await expect(
+        resolveFileToBase64({ sourceUrl: "https://onedrive.example/share/x" }, { maxBytes: 1000, stagingDir: dir }),
+      ).rejects.toThrow(/HTML page/i);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("downloads bytes from a non-HTML sourceUrl", async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      new Response(Buffer.from("IMG"), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      })) as typeof fetch;
+    try {
+      const r = await resolveFileToBase64(
+        { sourceUrl: "https://e.com/a.png" },
+        { maxBytes: 1000, stagingDir: dir },
+      );
+      expect(r.mimeType).toBe("image/png");
+      expect(Buffer.from(r.base64, "base64").toString()).toBe("IMG");
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});

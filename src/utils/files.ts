@@ -1,4 +1,5 @@
 import path from "node:path";
+import { promises as fs } from "node:fs";
 
 export interface FileSource {
   sourceUrl?: string;
@@ -75,4 +76,61 @@ export function stagingPathForRef(stagingDir: string, ref: string): string {
     throw new Error(`Invalid staging ref "${ref}".`);
   }
   return path.join(stagingDir, ref);
+}
+
+const HTML_CONTENT_TYPE = /text\/html|application\/xhtml/i;
+
+/**
+ * Resolve exactly one upload source to base64 bytes, enforcing the size guard.
+ * Throws a clear, user-facing Error on any failure (the tool layer turns these
+ * into per-file results so a batch continues past one bad file).
+ */
+export async function resolveFileToBase64(
+  source: FileSource,
+  opts: { maxBytes: number; stagingDir: string },
+): Promise<ResolvedFile> {
+  const which = pickSource(source);
+  let bytes: Buffer;
+  let mimeType = "application/octet-stream";
+  let filename = deriveFilename(source);
+
+  if (which === "sourceUrl") {
+    const res = await fetch(source.sourceUrl as string);
+    if (!res.ok) {
+      throw new Error(`Could not download sourceUrl (HTTP ${res.status}). Use a direct-download link.`);
+    }
+    const ct = res.headers.get("content-type") ?? "";
+    if (HTML_CONTENT_TYPE.test(ct)) {
+      throw new Error(
+        "sourceUrl returned an HTML page, not a file. OneDrive/SharePoint 'share' links open a " +
+        "viewer — use a direct-download link (e.g. one ending in ?download=1).",
+      );
+    }
+    bytes = Buffer.from(await res.arrayBuffer());
+    if (ct) mimeType = ct.split(";")[0].trim();
+  } else if (which === "filePath") {
+    bytes = await fs.readFile(source.filePath as string);
+    mimeType = guessMime(filename);
+  } else {
+    const dir = stagingPathForRef(opts.stagingDir, source.stagingRef as string);
+    let entries: string[];
+    try {
+      entries = await fs.readdir(dir);
+    } catch {
+      throw new Error(`Staging ref "${source.stagingRef}" not found or expired.`);
+    }
+    const fileName = entries.find((e) => !e.startsWith("."));
+    if (!fileName) throw new Error(`Staging ref "${source.stagingRef}" has no file.`);
+    filename = source.filename?.trim() || fileName;
+    bytes = await fs.readFile(path.join(dir, fileName));
+    mimeType = guessMime(filename);
+  }
+
+  if (bytes.byteLength > opts.maxBytes) {
+    throw new Error(
+      `File "${filename}" is ${(bytes.byteLength / 1_048_576).toFixed(1)} MB, over the ` +
+      `${(opts.maxBytes / 1_048_576).toFixed(0)} MB limit (SIMPRO_MAX_ATTACHMENT_MB).`,
+    );
+  }
+  return { filename, base64: bytes.toString("base64"), mimeType, sizeBytes: bytes.byteLength };
 }
