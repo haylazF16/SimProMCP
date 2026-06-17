@@ -129,3 +129,38 @@ export const ENDPOINTS = {
   // Account / company info
   info: "/info/",
 } as const;
+
+// ---- Attachments (files) — same /api/v1.0, company-scoped ----------------
+// entityType -> parent resource suffix. `invoice` is intentionally ABSENT:
+// invoices hold no attachments in Simpro's data model, so the attachment tools
+// auto-resolve an invoice to its linked Job before building the path.
+// NOTE: customer attachments use the FLAT /customers/{id} path — the typed
+// companies/individuals split that the record GET needs returns 404 here.
+const encId = (id: string | number) => encodeURIComponent(String(id));
+
+export const ATTACHMENT_ENTITY_TYPES = [
+  "job", "quote", "site", "supplier", "customer",
+  "employee", "recurringJob", "purchaseOrder", "invoice",
+] as const;
+export type AttachmentEntityType = (typeof ATTACHMENT_ENTITY_TYPES)[number];
+
+export const ATTACHMENT_ENTITY_PATHS: Record<string, (id: string | number) => string> = {
+  job: (id) => `/jobs/${encId(id)}`,
+  quote: (id) => `/quotes/${encId(id)}`,
+  site: (id) => `/sites/${encId(id)}`,
+  supplier: (id) => `/vendors/${encId(id)}`,
+  customer: (id) => `/customers/${encId(id)}`,
+  employee: (id) => `/employees/${encId(id)}`,
+  recurringJob: (id) => `/recurringJobs/${encId(id)}`,
+  purchaseOrder: (id) => `/vendorOrders/${encId(id)}`,
+};
+
+/** List/create files under a parent resource suffix (e.g. "/jobs/1"). */
+export function attachmentFiles(parentSuffix: string): string {
+  return `${parentSuffix}/attachments/files/`;
+}
+
+/** A single attachment file by ID under a parent resource suffix. */
+export function attachmentFileById(parentSuffix: string, fileId: string | number): string {
+  return `${parentSuffix}/attachments/files/${encId(fileId)}`;
+}
