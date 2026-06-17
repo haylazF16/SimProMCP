@@ -1,3 +1,4 @@
+import path from "node:path";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
@@ -5,12 +6,14 @@ import {
   ATTACHMENT_ENTITY_TYPES,
   ATTACHMENT_ENTITY_PATHS,
   attachmentFiles,
+  attachmentFileById,
 } from "../simpro/endpoints.js";
 import { idSchema, confirmSchema } from "../utils/schemas.js";
 import {
   pickSource,
   deriveFilename,
   resolveFileToBase64,
+  writeBase64ToPath,
   clearStaging,
 } from "../utils/files.js";
 import {
@@ -21,6 +24,7 @@ import {
   extractList,
   writeGuard,
   jsonBlock,
+  type McpTextResponse,
 } from "./_shared.js";
 
 const entityTypeSchema = z
@@ -29,6 +33,15 @@ const entityTypeSchema = z
     "Which Simpro entity holds the files. 'invoice' auto-resolves to the invoice's linked Job " +
     "(invoices cannot hold attachments directly).",
   );
+
+/** MCP content can be text or an inline image; the shared helper type is text-only. */
+type McpContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
+function multiResponse(content: McpContent[], isError = false): McpTextResponse {
+  return { content, isError } as unknown as McpTextResponse;
+}
 
 /**
  * Map an entityType+id to the company-scoped parent suffix for attachments.
@@ -167,6 +180,101 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
           `${ok} uploaded, ${failed} failed.\n` + jsonBlock("Results", results),
           ok === 0,
         );
+      }),
+  );
+
+  // ---- download attachment(s) (read) ----
+  registerTool(
+    server,
+    "simpro_download_attachment",
+    "Download one or more attachments by fileId. Images render inline; pass saveDir (or per-file " +
+      "savePath) to write bytes to disk; otherwise returns metadata only (use returnBase64=true to " +
+      "force bytes into the response). Read-only.",
+    () => ({
+      entityType: entityTypeSchema,
+      entityId: idSchema,
+      files: z
+        .array(
+          z.object({
+            fileId: idSchema,
+            savePath: z.string().optional().describe("Write THIS file to this exact path."),
+          }),
+        )
+        .min(1),
+      saveDir: z.string().optional().describe("Write all downloaded files into this directory."),
+      returnBase64: z.boolean().optional().describe("Force base64 bytes into the response, even for non-images."),
+    }),
+    () => async (args) =>
+      safeRun(async () => {
+        const parent = await resolveParentSuffix(ctx, args.entityType, args.entityId);
+        const maxBytes = ctx.config.SIMPRO_MAX_ATTACHMENT_MB * 1_048_576;
+        const content: McpContent[] = [];
+        const results: Array<Record<string, unknown>> = [];
+
+        for (const f of args.files) {
+          try {
+            const filePath = ctx.client.companyPath(attachmentFileById(parent, f.fileId));
+            const rec = await ctx.client.get<{ Base64Data?: string; MimeType?: string; Filename?: string }>(
+              filePath,
+              { display: "Base64" },
+            );
+            const b64 = rec.Base64Data ?? "";
+            const mime = rec.MimeType ?? "application/octet-stream";
+            const name = rec.Filename ?? `file-${f.fileId}`;
+            const sizeBytes = Math.floor((b64.length * 3) / 4);
+
+            if (f.savePath || args.saveDir) {
+              const dest = f.savePath ?? path.join(args.saveDir as string, name);
+              const abs = await writeBase64ToPath(b64, dest);
+              results.push({ fileId: f.fileId, filename: name, status: "saved", savedTo: abs });
+            } else if (mime.startsWith("image/")) {
+              if (sizeBytes > maxBytes) {
+                results.push({
+                  fileId: f.fileId,
+                  filename: name,
+                  status: "error",
+                  error: `Image too large to inline (${(sizeBytes / 1_048_576).toFixed(1)} MB); pass saveDir.`,
+                });
+              } else {
+                content.push({ type: "image", data: b64, mimeType: mime });
+                results.push({ fileId: f.fileId, filename: name, status: "inline" });
+              }
+            } else if (args.returnBase64) {
+              if (sizeBytes > maxBytes) {
+                results.push({
+                  fileId: f.fileId,
+                  filename: name,
+                  status: "error",
+                  error: `Too large to inline (${(sizeBytes / 1_048_576).toFixed(1)} MB); pass saveDir.`,
+                });
+              } else {
+                content.push({ type: "text", text: jsonBlock(`${name} (base64)`, { mimeType: mime, base64: b64 }) });
+                results.push({ fileId: f.fileId, filename: name, status: "inline" });
+              }
+            } else {
+              results.push({
+                fileId: f.fileId,
+                filename: name,
+                status: "metadata",
+                mimeType: mime,
+                note: "Pass saveDir/savePath to download bytes, or returnBase64=true to inline.",
+              });
+            }
+          } catch (err) {
+            results.push({
+              fileId: f.fileId,
+              status: "error",
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        const delivered = results.filter((r) => r.status === "saved" || r.status === "inline").length;
+        const failed = results.filter((r) => r.status === "error").length;
+        const meta = results.filter((r) => r.status === "metadata").length;
+        const summary = `${delivered} delivered, ${meta} metadata-only, ${failed} failed.`;
+        content.unshift({ type: "text", text: `${summary}\n${jsonBlock("Files", results)}` });
+        return multiResponse(content, delivered === 0 && failed > 0);
       }),
   );
 }

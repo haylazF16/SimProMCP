@@ -160,3 +160,50 @@ describe("simpro_upload_attachment", () => {
     await fsp.rm(dir, { recursive: true, force: true });
   });
 });
+
+describe("simpro_download_attachment", () => {
+  beforeEach(() => __resetSchemaCacheForTests());
+
+  function fileRecord(name: string, mime: string, text: string) {
+    return { Filename: name, MimeType: mime, Base64Data: Buffer.from(text).toString("base64") };
+  }
+
+  it("requests the file with display=Base64 and returns metadata-only by default for non-images", async () => {
+    const { ctx, spy } = makeCtx({ get: async () => fileRecord("report.pdf", "application/pdf", "PDF") });
+    const out = await callTool(ctx, "simpro_download_attachment", {
+      entityType: "job",
+      entityId: 1,
+      files: [{ fileId: 5 }],
+    });
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/jobs/1/attachments/files/5");
+    expect(spy.gets[0].query).toEqual({ display: "Base64" });
+    expect(out).toMatch(/metadata/i);
+    expect(out).toContain("report.pdf");
+  });
+
+  it("returns an inline image content block for image/* files", async () => {
+    const { ctx } = makeCtx({ get: async () => fileRecord("photo.png", "image/png", "PNGBYTES") });
+    const out = await callTool(ctx, "simpro_download_attachment", {
+      entityType: "job",
+      entityId: 1,
+      files: [{ fileId: 7 }],
+    });
+    // callTool renders an image content block as "[image]".
+    expect(out).toContain("[image]");
+  });
+
+  it("writes to saveDir when given and reports the path", async () => {
+    const dir = await fsp.mkdtemp(nodePath.join(os.tmpdir(), "dl-"));
+    const { ctx } = makeCtx({ get: async () => fileRecord("docket.pdf", "application/pdf", "PDF") });
+    const out = await callTool(ctx, "simpro_download_attachment", {
+      entityType: "job",
+      entityId: 1,
+      files: [{ fileId: 9 }],
+      saveDir: dir,
+    });
+    expect(out).toMatch(/saved/i);
+    const written = await fsp.readFile(nodePath.join(dir, "docket.pdf"), "utf8");
+    expect(written).toBe("PDF");
+    await fsp.rm(dir, { recursive: true, force: true });
+  });
+});
