@@ -207,3 +207,34 @@ describe("simpro_download_attachment", () => {
     await fsp.rm(dir, { recursive: true, force: true });
   });
 });
+
+describe("simpro_delete_attachment", () => {
+  beforeEach(() => __resetSchemaCacheForTests());
+
+  it("requires confirm:true (no DELETE on preview)", async () => {
+    const { ctx, spy } = makeCtx();
+    const out = await callTool(ctx, "simpro_delete_attachment", {
+      confirm: false,
+      entityType: "job",
+      entityId: 1,
+      fileIds: [5],
+    });
+    expect(out).toMatch(/Confirmation required/i);
+    expect(spy.dels).toHaveLength(0);
+  });
+
+  it("deletes each fileId and reports the count", async () => {
+    const { ctx, spy } = makeCtx();
+    const out = await callTool(ctx, "simpro_delete_attachment", {
+      confirm: true,
+      entityType: "job",
+      entityId: 132277,
+      fileIds: [5, 6],
+    });
+    expect(spy.dels).toEqual([
+      "/api/v1.0/companies/4/jobs/132277/attachments/files/5",
+      "/api/v1.0/companies/4/jobs/132277/attachments/files/6",
+    ]);
+    expect(out).toMatch(/2 deleted, 0 failed/);
+  });
+});

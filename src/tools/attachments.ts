@@ -277,4 +277,42 @@ export function registerAttachmentTools(server: McpServer, ctx: ToolCtx) {
         return multiResponse(content, delivered === 0 && failed > 0);
       }),
   );
+
+  // ---- delete attachment(s) (write) ----
+  registerTool(
+    server,
+    "simpro_delete_attachment",
+    "Delete one or more attachments by fileId from a Simpro entity. Requires confirm=true.",
+    () => ({
+      confirm: confirmSchema,
+      entityType: entityTypeSchema,
+      entityId: idSchema,
+      fileIds: z.array(idSchema).min(1).describe("IDs of the attachments to delete."),
+    }),
+    () => async (args) =>
+      safeRun(async () => {
+        const parent = await resolveParentSuffix(ctx, args.entityType, args.entityId);
+        const samplePath = ctx.client.companyPath(attachmentFileById(parent, args.fileIds[0]));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm,
+          method: "DELETE",
+          path: samplePath,
+          payload: { fileIds: args.fileIds },
+          summary: `Delete ${args.fileIds.length} attachment(s) from ${args.entityType} #${args.entityId}`,
+        });
+        if (blocked) return blocked;
+
+        const results: Array<Record<string, unknown>> = [];
+        for (const id of args.fileIds) {
+          try {
+            await ctx.client.del(ctx.client.companyPath(attachmentFileById(parent, id)));
+            results.push({ fileId: id, status: "deleted" });
+          } catch (err) {
+            results.push({ fileId: id, status: "error", error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+        const ok = results.filter((r) => r.status === "deleted").length;
+        return textResponse(`${ok} deleted, ${results.length - ok} failed.\n` + jsonBlock("Results", results), ok === 0);
+      }),
+  );
 }
