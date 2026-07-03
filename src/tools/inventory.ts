@@ -365,7 +365,7 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
     ),
     () => async (args) =>
       safeRun(async () => {
-        const payload = args.rawPayload ?? { StorageDevice: args.storageDeviceId };
+        const payload = args.rawPayload ?? { StorageDevice: { ID: args.storageDeviceId } };
         const path = ctx.client.companyPath(ENDPOINTS.stockTakes);
         const blocked = writeGuard(ctx, {
           confirm: args.confirm, method: "POST", path, payload,

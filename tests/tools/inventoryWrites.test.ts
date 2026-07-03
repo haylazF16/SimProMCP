@@ -116,7 +116,7 @@ describe("simpro_create_stock_take", () => {
     });
     expect(r.isError).toBe(false);
     expect(spy.posts[0].path).toBe("/api/v1.0/companies/4/stockTakes/");
-    expect(spy.posts[0].payload).toEqual({ StorageDevice: 8 });
+    expect(spy.posts[0].payload).toEqual({ StorageDevice: { ID: 8 } });
   });
 
   it("blocks without confirm", async () => {
