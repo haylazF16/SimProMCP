@@ -157,3 +157,19 @@ describe("financial reads", () => {
     expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/recurringInvoices/9");
   });
 });
+
+describe("typed customer lists", () => {
+  it("simpro_list_customer_companies GETs /customers/companies/", async () => {
+    const { ctx, spy } = makeCtx([{ ID: 1, CompanyName: "Acme" }]);
+    const r = await callTool(registerCustomerTools, ctx, "simpro_list_customer_companies", {});
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/customers/companies/");
+  });
+
+  it("simpro_list_customer_individuals GETs /customers/individuals/", async () => {
+    const { ctx, spy } = makeCtx([{ ID: 2, GivenName: "Jo" }]);
+    const r = await callTool(registerCustomerTools, ctx, "simpro_list_customer_individuals", {});
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/customers/individuals/");
+  });
+});

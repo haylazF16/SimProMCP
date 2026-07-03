@@ -216,4 +216,38 @@ export function registerCustomerTools(server: McpServer, ctx: ToolCtx) {
         return formatRecord(`Updated customer #${args.customerId}.`, resp, resp, true);
       }),
   );
+
+  // ---- list company customers ----
+  registerTool(
+    server,
+    "simpro_list_customer_companies",
+    "List company-type customers only (paginated). simpro_search_customers returns both types mixed; use this when you specifically need companies.",
+    () => ({ page: z.number().int().min(1).optional(), pageSize: z.number().int().min(1).max(1000).optional(), raw: rawFlagSchema }),
+    () => async ({ page, pageSize, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.customersCompanies);
+        const pg = paginationQuery(ctx.config, page, pageSize);
+        const resp = await ctx.client.get<unknown>(path, { ...pg.query, columns: "ID,CompanyName,Email,Phone" });
+        const items = extractList(resp) as { ID?: number; CompanyName?: string }[];
+        return formatList(items, undefined, pg.page, pg.pageSize,
+          (c) => `#${c.ID ?? "?"} ${c.CompanyName ?? "(unnamed)"}`, resp, raw === true);
+      }),
+  );
+
+  // ---- list individual customers ----
+  registerTool(
+    server,
+    "simpro_list_customer_individuals",
+    "List individual-type customers only (paginated). simpro_search_customers returns both types mixed; use this when you specifically need individuals.",
+    () => ({ page: z.number().int().min(1).optional(), pageSize: z.number().int().min(1).max(1000).optional(), raw: rawFlagSchema }),
+    () => async ({ page, pageSize, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.customersIndividuals);
+        const pg = paginationQuery(ctx.config, page, pageSize);
+        const resp = await ctx.client.get<unknown>(path, { ...pg.query, columns: "ID,GivenName,FamilyName,Email,Phone" });
+        const items = extractList(resp) as { ID?: number; GivenName?: string; FamilyName?: string }[];
+        return formatList(items, undefined, pg.page, pg.pageSize,
+          (c) => `#${c.ID ?? "?"} ${[c.GivenName, c.FamilyName].filter(Boolean).join(" ") || "(unnamed)"}`, resp, raw === true);
+      }),
+  );
 }
