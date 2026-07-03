@@ -8,19 +8,24 @@
 
 The May 2026 API gap audit (`docs/SIMPRO_API_AUDIT.md`) found 67/132 endpoints covered
 (51%). Batch 1 filled 3 H-priority writes (job section / PO / PO item updates). The user
-wants the rest swept in one project: **every remaining non-delete, non-financial endpoint
-gets a tool**, so chats stop hitting "missing tool" moments. Coverage after this batch:
-~76%. Everything still missing afterwards is missing *on purpose*.
+wants the rest swept in one project: **every remaining non-delete, non-financial,
+non-workforce-write endpoint gets a tool**, so chats stop hitting "missing tool" moments.
+Coverage after this batch: ~70% (92/132). Everything still missing afterwards is missing
+*on purpose* (deletes, money, scheduling/time writes).
 
 ## Scope
 
-**In:** 31 new tools — 15 writes (create/update) + 16 long-tail reads. Detailed tables below.
+**In:** 25 new tools — 9 writes (create/update) + 16 long-tail reads. Detailed tables below.
 
 **Out (deliberate):**
 - **All DELETE endpoints** (23) — destructive; deferred exactly as in Batch 1.
 - **Financial writes** (7): `POST/PATCH /invoices`, `POST /customerPayments`,
   `POST/PATCH /creditNotes`, `POST/PATCH /recurringInvoices`. User decision: money stays
   in the Simpro web UI for now. Financial *reads* are unaffected (mostly already covered).
+- **Workforce/scheduling writes** (6): `POST/PATCH /schedules`, `POST/PATCH /timesheets`,
+  `POST/PATCH /recurringJobs`. User decision (2026-07-03): these stay **read-only** —
+  scheduling and time entry remain in the Simpro web UI. Their `get` reads ARE in scope
+  (Batch 2c).
 - Audit-table corrections: `PATCH /jobs/{id}/sections/{id}`, `PATCH /vendorOrders/{id}`,
   `PATCH /vendorOrders/{id}/catalogs/{id}` are listed as missing in the audit but were
   shipped in Batch 1 — not in scope here. (Update the audit doc as part of this batch.)
@@ -45,8 +50,7 @@ Every tool follows the existing pattern in `src/tools/*.ts`:
 5. **Output:** `formatList` / `formatRecord`; errors through `safeRun`.
 6. **Placement:** tools live in the existing domain files (`contacts.ts`,
    `scheduling.ts`, `inventory.ts`, `jobs.ts`, `customers.ts`, `financials.ts`,
-   `tasks.ts`, `suppliers.ts`). If `scheduling.ts` exceeds ~500 lines with its 6 new
-   tools, split into `scheduling.ts` + `timesheets.ts`.
+   `tasks.ts`, `suppliers.ts`). No new files expected at this size.
 
 ## Tool inventory
 
@@ -59,16 +63,10 @@ Every tool follows the existing pattern in `src/tools/*.ts`:
 | `simpro_create_lead` | POST /leads/ | LeadName, Customer, Site, Salesperson, + rawPayload; look-up helpers referenced in description |
 | `simpro_update_lead` | PATCH /leads/{id} | partial update |
 
-### Batch 2b — Operations writes — 11 tools
+### Batch 2b — Inventory writes — 5 tools
 
 | Tool | Endpoint |
 |---|---|
-| `simpro_create_schedule` | POST /schedules/ |
-| `simpro_update_schedule` | PATCH /schedules/{id} |
-| `simpro_create_timesheet` | POST /timesheets/ |
-| `simpro_update_timesheet` | PATCH /timesheets/{uid} |
-| `simpro_create_recurring_job` | POST /recurringJobs/ |
-| `simpro_update_recurring_job` | PATCH /recurringJobs/{id} |
 | `simpro_create_stock_take` | POST /stockTakes/ |
 | `simpro_update_stock_take` | PATCH /stockTakes/{id} |
 | `simpro_create_storage_device` | POST /storageDevices/ |
@@ -100,7 +98,7 @@ Every tool follows the existing pattern in `src/tools/*.ts`:
 
 ## Tool-list noise control
 
-Tool count grows ~70 → ~102. Rules for every new tool description:
+Tool count grows ~70 → ~95. Rules for every new tool description:
 - First sentence: what it does + when to use it. Hard cap ~2 sentences unless a
   cross-reference is genuinely needed.
 - Names strictly `simpro_<verb>_<entity>` (`list`/`get`/`search`/`create`/`update`).
@@ -116,7 +114,7 @@ missing IDs surface Simpro's 404 text as-is.
 
 - **Per tool (unit):** mocked-client tests in `tests/tools/` matching existing
   conventions — happy path for all; writes additionally test guard-block (no flag),
-  confirm-missing rejection, and dry-run echo. Expect roughly +70 tests (~245 → ~315).
+  confirm-missing rejection, and dry-run echo. Expect roughly +55 tests (~245 → ~300).
 - **Final end-to-end verification (user requirement — "test all the work at the end"):**
   after all three batches, a dedicated verification pass:
   1. `npm run build` clean; `npm test` fully green.
@@ -139,10 +137,10 @@ in that environment).
 
 ## Acceptance criteria
 
-1. All 31 tools registered, named per convention, with guarded writes.
-2. `npm test` green including ~70 new tests; `npm run build` clean.
+1. All 25 tools registered, named per convention, with guarded writes.
+2. `npm test` green including ~55 new tests; `npm run build` clean.
 3. Live smoke-test checklist completed: all new reads return real data; all new writes
    dry-run correctly; zero unintended mutations in Simpro.
-4. `docs/SIMPRO_API_AUDIT.md` updated: coverage ≥76%, stale rows fixed, remaining gaps
-   are only deletes + financial writes.
+4. `docs/SIMPRO_API_AUDIT.md` updated: coverage ~70%, stale rows fixed, remaining gaps
+   are only deletes + financial writes + workforce/scheduling writes.
 5. Nothing deployed/pushed without explicit user approval.
