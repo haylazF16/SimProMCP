@@ -125,3 +125,19 @@ describe("tasks/staff/cost-centre reads", () => {
     expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/setup/accounts/costCenters/12");
   });
 });
+
+describe("scheduling reads", () => {
+  it("simpro_get_schedule GETs /schedules/{id}", async () => {
+    const { ctx, spy } = makeCtx({ ID: 44, Type: "job" });
+    const r = await callTool(registerSchedulingTools, ctx, "simpro_get_schedule", { scheduleId: 44 });
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/schedules/44");
+  });
+
+  it("simpro_get_timesheet GETs /timesheets/{uid}", async () => {
+    const { ctx, spy } = makeCtx({ UID: "abc-1" });
+    const r = await callTool(registerSchedulingTools, ctx, "simpro_get_timesheet", { timesheetUid: "abc-1" });
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/timesheets/abc-1");
+  });
+});

@@ -194,4 +194,32 @@ export function registerSchedulingTools(server: McpServer, ctx: ToolCtx) {
         return formatRecord(`Recurring Job #${resp.ID ?? recurringJobId}`, resp, resp, raw === true);
       }),
   );
+
+  // ---- get schedule ----
+  registerTool(
+    server,
+    "simpro_get_schedule",
+    "Get one Simpro schedule entry by ID (staff, blocks, date). Use simpro_search_schedules to find IDs.",
+    () => ({ scheduleId: idSchema, raw: rawFlagSchema }),
+    () => async ({ scheduleId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.scheduleById(scheduleId));
+        const resp = await ctx.client.get<{ ID?: number }>(path);
+        return formatRecord(`Schedule #${resp.ID ?? scheduleId}`, resp, resp, raw === true);
+      }),
+  );
+
+  // ---- get timesheet ----
+  registerTool(
+    server,
+    "simpro_get_timesheet",
+    "Get one Simpro timesheet entry by its UID (from simpro_search_timesheets).",
+    () => ({ timesheetUid: z.string().min(1).describe("Timesheet UID from search results."), raw: rawFlagSchema }),
+    () => async ({ timesheetUid, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.timesheetByUid(timesheetUid));
+        const resp = await ctx.client.get<Record<string, unknown>>(path);
+        return formatRecord(`Timesheet ${timesheetUid}`, resp, resp, raw === true);
+      }),
+  );
 }
