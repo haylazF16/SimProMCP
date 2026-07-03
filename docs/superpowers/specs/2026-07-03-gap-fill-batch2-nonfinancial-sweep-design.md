@@ -15,7 +15,7 @@ Coverage after this batch: ~70% (92/132). Everything still missing afterwards is
 
 ## Scope
 
-**In:** 25 new tools — 9 writes (create/update) + 16 long-tail reads. Detailed tables below.
+**In:** 26 new tools — 9 writes (create/update) + 17 long-tail reads. Detailed tables below.
 
 **Out (deliberate):**
 - **All DELETE endpoints** (23) — destructive; deferred exactly as in Batch 1.
@@ -73,7 +73,7 @@ Every tool follows the existing pattern in `src/tools/*.ts`:
 | `simpro_update_storage_device` | PATCH /storageDevices/{id} |
 | `simpro_update_catalog_item` | PATCH /catalogs/{id} |
 
-### Batch 2c — Long-tail reads — 16 tools
+### Batch 2c — Long-tail reads — 17 tools
 
 | Tool | Endpoint |
 |---|---|
@@ -94,7 +94,7 @@ Every tool follows the existing pattern in `src/tools/*.ts`:
 | `simpro_get_recurring_invoice` | GET /recurringInvoices/{id} |
 | `simpro_list_po_receipts` + `simpro_get_receipt_catalog` | GET /vendorOrders/{id}/receipts/, GET …/receipts/{rid}/catalogs/{cid} |
 
-*(The last row is two tools; total reads = 16 including both.)*
+*(The last row is two tools; total reads = 17 including both. `simpro_get_task` is genuinely new — verified absent from src/ on 2026-07-03.)*
 
 ## Tool-list noise control
 
@@ -137,7 +137,7 @@ in that environment).
 
 ## Acceptance criteria
 
-1. All 25 tools registered, named per convention, with guarded writes.
+1. All 26 tools registered, named per convention, with guarded writes.
 2. `npm test` green including ~55 new tests; `npm run build` clean.
 3. Live smoke-test checklist completed: all new reads return real data; all new writes
    dry-run correctly; zero unintended mutations in Simpro.
