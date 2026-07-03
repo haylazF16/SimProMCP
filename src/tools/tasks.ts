@@ -163,8 +163,10 @@ export function registerTaskTools(server: McpServer, ctx: ToolCtx) {
     () => async ({ staffId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.staffById(staffId));
-        const resp = await ctx.client.get<{ ID?: number; GivenName?: string; FamilyName?: string }>(path);
-        const name = [resp.GivenName, resp.FamilyName].filter(Boolean).join(" ") || "(unnamed)";
+        // Employees carry GivenName/FamilyName; contractor staff rows carry a
+        // flat Name (verified live against company 4, 2026-07-03).
+        const resp = await ctx.client.get<{ ID?: number; GivenName?: string; FamilyName?: string; Name?: string }>(path);
+        const name = [resp.GivenName, resp.FamilyName].filter(Boolean).join(" ") || resp.Name || "(unnamed)";
         return formatRecord(`Staff #${resp.ID ?? staffId}: ${name}`, resp, resp, raw === true);
       }),
   );

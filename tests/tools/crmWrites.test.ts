@@ -175,3 +175,29 @@ describe("simpro_update_lead", () => {
     expect(r.text).toContain("No fields to update");
   });
 });
+
+describe("update_contact tolerates empty PATCH response", () => {
+  it("does not crash when the API returns no body (204)", async () => {
+    const spyPatches: { path: string; payload: unknown }[] = [];
+    const ctx = {
+      client: {
+        companyPath: (p: string) => `/api/v1.0/companies/4${p}`,
+        get: async () => [],
+        post: async () => ({ ID: 1 }),
+        patch: async (p: string, payload: unknown) => {
+          spyPatches.push({ path: p, payload });
+          return undefined; // Simpro 204 No Content
+        },
+      } as unknown as ToolCtx["client"],
+      config: {
+        SIMPRO_ENABLE_WRITE_TOOLS: true,
+        SIMPRO_DRY_RUN: false,
+        SIMPRO_DEFAULT_PAGE_SIZE: 20,
+        SIMPRO_MAX_PAGE_SIZE: 100,
+      } as unknown as ToolCtx["config"],
+    };
+    const r = await callTool(ctx, "simpro_update_contact", { confirm: true, contactId: 5, email: "x@y.co" });
+    expect(r.isError).toBe(false);
+    expect(spyPatches).toHaveLength(1);
+  });
+});

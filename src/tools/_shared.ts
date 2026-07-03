@@ -163,7 +163,10 @@ export function textResponse(text: string, isError = false): McpTextResponse {
 }
 
 export function jsonBlock(label: string, value: unknown, max = 8000): string {
-  const json = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  // JSON.stringify(undefined) returns undefined (not a string) — e.g. Simpro
+  // PATCH endpoints replying 204 No Content. Fall back to "null" so truncate()
+  // never sees undefined (crashed live on update_contact, 2026-07-03).
+  const json = typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? "null");
   return `${label}:\n\`\`\`json\n${truncate(json, max)}\n\`\`\``;
 }
 
