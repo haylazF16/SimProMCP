@@ -777,4 +777,35 @@ export function registerSupplierTools(server: McpServer, ctx: ToolCtx) {
         );
       }),
   );
+
+  // ---- list PO receipts ----
+  registerTool(
+    server,
+    "simpro_list_po_receipts",
+    "List the receipts (supplier invoices) recorded against one purchase order.",
+    () => ({ purchaseOrderId: idSchema, raw: rawFlagSchema }),
+    () => async ({ purchaseOrderId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.vendorOrderReceipts(purchaseOrderId));
+        const resp = await ctx.client.get<unknown>(path);
+        const items = extractList(resp) as SimproVendorReceipt[];
+        return formatList(items, undefined, 1, items.length || 1,
+          (r0) => `#${r0.ID ?? "?"} ${r0.VendorInvoiceNo ?? "(no invoice no)"}${r0.DateIssued ? ` — ${r0.DateIssued}` : ""}`,
+          resp, raw === true);
+      }),
+  );
+
+  // ---- get receipt catalog line ----
+  registerTool(
+    server,
+    "simpro_get_receipt_catalog",
+    "Get one catalog line item on a PO receipt (supplier invoice).",
+    () => ({ purchaseOrderId: idSchema, receiptId: idSchema, catalogId: idSchema, raw: rawFlagSchema }),
+    () => async ({ purchaseOrderId, receiptId, catalogId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.vendorReceiptCatalogById(purchaseOrderId, receiptId, catalogId));
+        const resp = await ctx.client.get<{ ID?: number }>(path);
+        return formatRecord(`Receipt catalog line #${resp.ID ?? catalogId}`, resp, resp, raw === true);
+      }),
+  );
 }

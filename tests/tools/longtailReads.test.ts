@@ -173,3 +173,21 @@ describe("typed customer lists", () => {
     expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/customers/individuals/");
   });
 });
+
+describe("PO receipt reads", () => {
+  it("simpro_list_po_receipts GETs /vendorOrders/{id}/receipts/", async () => {
+    const { ctx, spy } = makeCtx([{ ID: 5, VendorInvoiceNo: "INV-9" }]);
+    const r = await callTool(registerSupplierTools, ctx, "simpro_list_po_receipts", { purchaseOrderId: 30 });
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/vendorOrders/30/receipts/");
+  });
+
+  it("simpro_get_receipt_catalog GETs one receipt catalog line", async () => {
+    const { ctx, spy } = makeCtx({ ID: 12 });
+    const r = await callTool(registerSupplierTools, ctx, "simpro_get_receipt_catalog", {
+      purchaseOrderId: 30, receiptId: 5, catalogId: 12,
+    });
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/vendorOrders/30/receipts/5/catalogs/12");
+  });
+});
