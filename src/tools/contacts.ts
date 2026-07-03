@@ -4,9 +4,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
 import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
-import { idSchema, rawFlagSchema } from "../utils/schemas.js";
+import { idSchema, rawFlagSchema, confirmSchema, rawPayloadSchema } from "../utils/schemas.js";
+import { pruneEmpty } from "../utils/sanitise.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
-import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, registerTool } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 
 interface SimproContact {
   ID?: number;
@@ -147,6 +148,86 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
         const path = ctx.client.companyPath(ENDPOINTS.leadById(leadId));
         const resp = await ctx.client.get<SimproLead>(path);
         return formatRecord(`Lead #${resp.ID ?? leadId}`, resp, resp, raw === true);
+      }),
+  );
+
+  // ---- create contact ----
+  registerTool(
+    server,
+    "simpro_create_contact",
+    "Create a new contact (person attached to customers/sites) in Simpro. Requires confirm=true. Honors SIMPRO_ENABLE_WRITE_TOOLS and SIMPRO_DRY_RUN.",
+    () => (
+    {
+      confirm: confirmSchema,
+      givenName: z.string().min(1).describe("First name."),
+      familyName: z.string().optional().describe("Last name."),
+      email: z.string().email().optional(),
+      workPhone: z.string().optional(),
+      cellPhone: z.string().optional().describe("Mobile number."),
+      position: z.string().optional().describe("Job title / role."),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          GivenName: args.givenName,
+          FamilyName: args.familyName,
+          Email: args.email,
+          WorkPhone: args.workPhone,
+          CellPhone: args.cellPhone,
+          Position: args.position,
+        });
+        const path = ctx.client.companyPath(ENDPOINTS.contacts);
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "POST", path, payload,
+          summary: `Create contact "${[args.givenName, args.familyName].filter(Boolean).join(" ")}" in Simpro`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.post<SimproContact>(path, payload);
+        return formatRecord(`Created contact #${resp.ID ?? "?"}.`, resp, resp, true);
+      }),
+  );
+
+  // ---- update contact ----
+  registerTool(
+    server,
+    "simpro_update_contact",
+    "Update an existing Simpro contact (partial update — only provided fields change). Requires confirm=true.",
+    () => (
+    {
+      confirm: confirmSchema,
+      contactId: idSchema,
+      givenName: z.string().optional(),
+      familyName: z.string().optional(),
+      email: z.string().email().optional(),
+      workPhone: z.string().optional(),
+      cellPhone: z.string().optional(),
+      position: z.string().optional(),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          GivenName: args.givenName,
+          FamilyName: args.familyName,
+          Email: args.email,
+          WorkPhone: args.workPhone,
+          CellPhone: args.cellPhone,
+          Position: args.position,
+        });
+        if (Object.keys(payload).length === 0) {
+          return textResponse("No fields to update — provide at least one field or rawPayload.", true);
+        }
+        const path = ctx.client.companyPath(ENDPOINTS.contactById(args.contactId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "PATCH", path, payload,
+          summary: `Update contact #${args.contactId}`,
+        });
+        if (blocked) return blocked;
+        await ctx.client.patch(path, payload);
+        return textResponse(`Updated contact #${args.contactId}. Changed fields: ${Object.keys(payload).join(", ")}.`);
       }),
   );
 }
