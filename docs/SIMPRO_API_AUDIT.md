@@ -11,12 +11,24 @@
 
 ## Summary
 
+> **Updated 2026-07-03 (Batch 2 — non-financial sweep).** Batch 1 (May) covered 3 H writes
+> (job section / PO / PO item PATCH — the table rows below were stale). Batch 2 (Jul) added
+> 26 tools: contacts create/update, leads create/update, storage devices create/update,
+> stock takes create/update, catalog update, and 17 long-tail reads (job notes/section/
+> section cost centres, tasks list+get, staff get, cost centre get, customer companies/
+> individuals lists, customer payment get, schedule get, timesheet get, recurring invoice
+> get, PO receipts list, receipt catalog get). See
+> docs/superpowers/verification/2026-07-03-batch2.md for live verification.
+
 - **Total endpoints documented:** 132
-- **Covered by an MCP tool:** 67 (50.8%)
-- **Missing:** 65
-  - High priority (writes on workflows you use or want): **8**
-  - Medium (cleanup, edge cases): **40**
-  - Low (rare resources, long-tail): **17**
+- **Covered by an MCP tool:** 96 (~73%)  *(67 original + 3 Batch-1 + 26 Batch-2)*
+- **Missing (all deliberate):** 36
+  - **Deletes** (23) — excluded by decision
+  - **Financial writes** (7: invoices, customer payments, credit notes, recurring invoices) — excluded by decision
+  - **Workforce writes** (6: schedules, timesheets, recurring jobs) — excluded by decision
+
+Original May-2026 snapshot (historical):
+- Covered: 67 (50.8%); Missing: 65 (H: 8, M: 40, L: 17)
 
 ### Coverage by resource (sorted, lowest first)
 
