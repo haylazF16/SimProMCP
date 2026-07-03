@@ -12,7 +12,7 @@ import { paginationQuery } from "../utils/pagination.js";
 import { buildKeywordFilter } from "../utils/filter.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
-import { extractList, formatList, formatRecord, safeRun, ToolCtx, writeGuard, registerTool } from "./_shared.js";
+import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
 
 interface SimproCatalog {
   ID?: number;
@@ -290,6 +290,64 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
           `Stocktake #${resp.ID ?? stockTakeId}`,
           resp, resp, raw === true,
         );
+      }),
+  );
+
+  // ---- create storage device ----
+  registerTool(
+    server,
+    "simpro_create_storage_device",
+    "Create a storage device (warehouse / vehicle / storage location) in Simpro. Requires confirm=true. Honors SIMPRO_ENABLE_WRITE_TOOLS and SIMPRO_DRY_RUN.",
+    () => (
+    {
+      confirm: confirmSchema,
+      name: z.string().min(1).describe("Storage device name, e.g. 'Van 7' or 'Main warehouse'."),
+      type: z.enum(["Warehouse", "Vehicle"]).optional().describe("Device type."),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({ Name: args.name, Type: args.type });
+        const path = ctx.client.companyPath(ENDPOINTS.storageDevices);
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "POST", path, payload,
+          summary: `Create storage device "${args.name}" in Simpro`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.post<{ ID?: number }>(path, payload);
+        return formatRecord(`Created storage device #${resp.ID ?? "?"}.`, resp, resp, true);
+      }),
+  );
+
+  // ---- update storage device ----
+  registerTool(
+    server,
+    "simpro_update_storage_device",
+    "Update a Simpro storage device (partial update). Requires confirm=true.",
+    () => (
+    {
+      confirm: confirmSchema,
+      storageDeviceId: idSchema,
+      name: z.string().optional(),
+      type: z.enum(["Warehouse", "Vehicle"]).optional(),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({ Name: args.name, Type: args.type });
+        if (Object.keys(payload).length === 0) {
+          return textResponse("No fields to update — provide at least one field or rawPayload.", true);
+        }
+        const path = ctx.client.companyPath(ENDPOINTS.storageDeviceById(args.storageDeviceId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "PATCH", path, payload,
+          summary: `Update storage device #${args.storageDeviceId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.patch<{ ID?: number }>(path, payload);
+        return formatRecord(`Updated storage device #${args.storageDeviceId}.`, resp, resp, true);
       }),
   );
 }
