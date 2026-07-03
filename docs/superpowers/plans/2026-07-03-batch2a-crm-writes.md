@@ -305,7 +305,7 @@ describe("simpro_create_lead", () => {
     expect(spy.posts).toHaveLength(1);
     expect(spy.posts[0].path).toBe("/api/v1.0/companies/4/leads/");
     expect(spy.posts[0].payload).toEqual({
-      LeadName: "New bathroom fit-out", Customer: 55, Site: 9, Salesperson: 3,
+      Description: "New bathroom fit-out", Customer: { ID: 55 }, Site: { ID: 9 }, Salesperson: { ID: 3 },
     });
   });
 
@@ -325,7 +325,7 @@ describe("simpro_update_lead", () => {
     });
     expect(r.isError).toBe(false);
     expect(spy.patches[0].path).toBe("/api/v1.0/companies/4/leads/77");
-    expect(spy.patches[0].payload).toEqual({ LeadName: "Renamed lead" });
+    expect(spy.patches[0].payload).toEqual({ Description: "Renamed lead" });
   });
 
   it("rejects an empty update", async () => {
@@ -355,7 +355,7 @@ At the end of `registerContactTools` in `src/tools/contacts.ts`, after the conta
     () => (
     {
       confirm: confirmSchema,
-      leadName: z.string().min(1).describe("Short name/description of the lead."),
+      leadName: z.string().min(1).describe("Short name/description of the lead (Simpro field: Description)."),
       customerId: idSchema.optional().describe("Simpro customer ID."),
       siteId: idSchema.optional().describe("Simpro site ID."),
       salespersonId: idSchema.optional().describe("Staff ID of the salesperson."),
@@ -365,10 +365,10 @@ At the end of `registerContactTools` in `src/tools/contacts.ts`, after the conta
     () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
-          LeadName: args.leadName,
-          Customer: args.customerId,
-          Site: args.siteId,
-          Salesperson: args.salespersonId,
+          Description: args.leadName,
+          Customer: args.customerId != null ? { ID: args.customerId } : undefined,
+          Site: args.siteId != null ? { ID: args.siteId } : undefined,
+          Salesperson: args.salespersonId != null ? { ID: args.salespersonId } : undefined,
         });
         const path = ctx.client.companyPath(ENDPOINTS.leads);
         const blocked = writeGuard(ctx, {
@@ -400,10 +400,10 @@ At the end of `registerContactTools` in `src/tools/contacts.ts`, after the conta
     () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
-          LeadName: args.leadName,
-          Customer: args.customerId,
-          Site: args.siteId,
-          Salesperson: args.salespersonId,
+          Description: args.leadName,
+          Customer: args.customerId != null ? { ID: args.customerId } : undefined,
+          Site: args.siteId != null ? { ID: args.siteId } : undefined,
+          Salesperson: args.salespersonId != null ? { ID: args.salespersonId } : undefined,
         });
         if (Object.keys(payload).length === 0) {
           return textResponse("No fields to update — provide at least one field or rawPayload.", true);
