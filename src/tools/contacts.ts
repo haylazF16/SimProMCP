@@ -230,4 +230,76 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
         return formatRecord(`Updated contact #${args.contactId}.`, resp, resp, true);
       }),
   );
+
+  // ---- create lead ----
+  registerTool(
+    server,
+    "simpro_create_lead",
+    "Create a new sales lead in Simpro. Requires confirm=true. Look up IDs first: customer via simpro_search_customers, site via simpro_search_sites, salesperson via simpro_list_staff. Tenant-specific required fields can be supplied with rawPayload.",
+    () => (
+    {
+      confirm: confirmSchema,
+      leadName: z.string().min(1).describe("Short name/description of the lead."),
+      customerId: idSchema.optional().describe("Simpro customer ID."),
+      siteId: idSchema.optional().describe("Simpro site ID."),
+      salespersonId: idSchema.optional().describe("Staff ID of the salesperson."),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          LeadName: args.leadName,
+          Customer: args.customerId,
+          Site: args.siteId,
+          Salesperson: args.salespersonId,
+        });
+        const path = ctx.client.companyPath(ENDPOINTS.leads);
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "POST", path, payload,
+          summary: `Create lead "${args.leadName}" in Simpro`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.post<SimproLead>(path, payload);
+        return formatRecord(`Created lead #${resp.ID ?? "?"}.`, resp, resp, true);
+      }),
+  );
+
+  // ---- update lead ----
+  registerTool(
+    server,
+    "simpro_update_lead",
+    "Update an existing Simpro lead (partial update — only provided fields change). Requires confirm=true.",
+    () => (
+    {
+      confirm: confirmSchema,
+      leadId: idSchema,
+      leadName: z.string().optional(),
+      customerId: idSchema.optional(),
+      siteId: idSchema.optional(),
+      salespersonId: idSchema.optional(),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          LeadName: args.leadName,
+          Customer: args.customerId,
+          Site: args.siteId,
+          Salesperson: args.salespersonId,
+        });
+        if (Object.keys(payload).length === 0) {
+          return textResponse("No fields to update — provide at least one field or rawPayload.", true);
+        }
+        const path = ctx.client.companyPath(ENDPOINTS.leadById(args.leadId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "PATCH", path, payload,
+          summary: `Update lead #${args.leadId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.patch<SimproLead>(path, payload);
+        return formatRecord(`Updated lead #${args.leadId}.`, resp, resp, true);
+      }),
+  );
 }

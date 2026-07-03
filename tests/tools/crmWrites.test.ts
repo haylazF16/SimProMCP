@@ -134,3 +134,44 @@ describe("simpro_update_contact", () => {
     expect(r.text).toContain("DRY RUN");
   });
 });
+
+describe("simpro_create_lead", () => {
+  it("POSTs mapped payload to /leads/ when confirmed", async () => {
+    const { ctx, spy } = makeCtx();
+    const r = await callTool(ctx, "simpro_create_lead", {
+      confirm: true, leadName: "New bathroom fit-out", customerId: 55, siteId: 9, salespersonId: 3,
+    });
+    expect(r.isError).toBe(false);
+    expect(spy.posts).toHaveLength(1);
+    expect(spy.posts[0].path).toBe("/api/v1.0/companies/4/leads/");
+    expect(spy.posts[0].payload).toEqual({
+      LeadName: "New bathroom fit-out", Customer: 55, Site: 9, Salesperson: 3,
+    });
+  });
+
+  it("blocks without confirm", async () => {
+    const { ctx, spy } = makeCtx();
+    const r = await callTool(ctx, "simpro_create_lead", { confirm: false, leadName: "X" });
+    expect(spy.posts).toHaveLength(0);
+    expect(r.text).toContain("Confirmation required");
+  });
+});
+
+describe("simpro_update_lead", () => {
+  it("PATCHes to /leads/{id} when confirmed", async () => {
+    const { ctx, spy } = makeCtx();
+    const r = await callTool(ctx, "simpro_update_lead", {
+      confirm: true, leadId: 77, leadName: "Renamed lead",
+    });
+    expect(r.isError).toBe(false);
+    expect(spy.patches[0].path).toBe("/api/v1.0/companies/4/leads/77");
+    expect(spy.patches[0].payload).toEqual({ LeadName: "Renamed lead" });
+  });
+
+  it("rejects an empty update", async () => {
+    const { ctx } = makeCtx();
+    const r = await callTool(ctx, "simpro_update_lead", { confirm: true, leadId: 77 });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("No fields to update");
+  });
+});
