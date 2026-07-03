@@ -199,4 +199,32 @@ export function registerFinancialsTools(server: McpServer, ctx: ToolCtx) {
         return result;
       }),
   );
+
+  // ---- get customer payment ----
+  registerTool(
+    server,
+    "simpro_get_customer_payment",
+    "Get one customer payment record by ID (read-only). Use simpro_search_customer_payments to find IDs.",
+    () => ({ paymentId: idSchema, raw: rawFlagSchema }),
+    () => async ({ paymentId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.customerPaymentById(paymentId));
+        const resp = await ctx.client.get<{ ID?: number }>(path);
+        return formatRecord(`Customer payment #${resp.ID ?? paymentId}`, resp, resp, raw === true);
+      }),
+  );
+
+  // ---- get recurring invoice ----
+  registerTool(
+    server,
+    "simpro_get_recurring_invoice",
+    "Get one recurring invoice template by ID (read-only). Use simpro_search_recurring_invoices to find IDs.",
+    () => ({ recurringInvoiceId: idSchema, raw: rawFlagSchema }),
+    () => async ({ recurringInvoiceId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.recurringInvoiceById(recurringInvoiceId));
+        const resp = await ctx.client.get<{ ID?: number }>(path);
+        return formatRecord(`Recurring invoice #${resp.ID ?? recurringInvoiceId}`, resp, resp, raw === true);
+      }),
+  );
 }

@@ -141,3 +141,19 @@ describe("scheduling reads", () => {
     expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/timesheets/abc-1");
   });
 });
+
+describe("financial reads", () => {
+  it("simpro_get_customer_payment GETs /customerPayments/{id}", async () => {
+    const { ctx, spy } = makeCtx({ ID: 66 });
+    const r = await callTool(registerFinancialsTools, ctx, "simpro_get_customer_payment", { paymentId: 66 });
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/customerPayments/66");
+  });
+
+  it("simpro_get_recurring_invoice GETs /recurringInvoices/{id}", async () => {
+    const { ctx, spy } = makeCtx({ ID: 9 });
+    const r = await callTool(registerFinancialsTools, ctx, "simpro_get_recurring_invoice", { recurringInvoiceId: 9 });
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/recurringInvoices/9");
+  });
+});
