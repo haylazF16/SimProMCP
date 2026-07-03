@@ -4,6 +4,7 @@ import { ENDPOINTS } from "../simpro/endpoints.js";
 import { buildKeywordFilter } from "../utils/filter.js";
 import { resolveCustomerByName } from "../utils/resolveCustomer.js";
 import { applyClientFilters } from "../utils/listFilter.js";
+import { paginationQuery } from "../utils/pagination.js";
 import { stripHtml } from "../utils/sanitise.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, isoDateSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
@@ -489,6 +490,82 @@ export function registerJobTools(server: McpServer, ctx: ToolCtx) {
           (t) => t,
           { sampledFrom: items.length, types: list },
           true);
+      }),
+  );
+
+  // ---- list job notes ----
+  registerTool(
+    server,
+    "simpro_list_job_notes",
+    "List the notes on a Simpro job (newest first as returned by Simpro). Use simpro_get_job_note for one note's full detail.",
+    () => ({ jobId: idSchema, page: z.number().int().min(1).optional(), pageSize: z.number().int().min(1).max(1000).optional(), raw: rawFlagSchema }),
+    () => async ({ jobId, page, pageSize, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.jobNotes(jobId));
+        const pg = paginationQuery(ctx.config, page, pageSize);
+        const resp = await ctx.client.get<unknown>(path, { ...pg.query });
+        const items = extractList(resp) as { ID?: number; Subject?: string; DateIssued?: string }[];
+        return formatList(items, undefined, pg.page, pg.pageSize,
+          (n) => `#${n.ID ?? "?"} ${n.Subject ?? "(no subject)"}${n.DateIssued ? ` — ${n.DateIssued}` : ""}`,
+          resp, raw === true);
+      }),
+  );
+
+  // ---- get job note ----
+  registerTool(
+    server,
+    "simpro_get_job_note",
+    "Get one Simpro job note by ID, including its full text.",
+    () => ({ jobId: idSchema, noteId: idSchema, raw: rawFlagSchema }),
+    () => async ({ jobId, noteId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.jobNoteById(jobId, noteId));
+        const resp = await ctx.client.get<{ ID?: number; Subject?: string }>(path);
+        return formatRecord(`Job #${jobId} note #${resp.ID ?? noteId}: ${resp.Subject ?? ""}`, resp, resp, raw === true);
+      }),
+  );
+
+  // ---- get job section ----
+  registerTool(
+    server,
+    "simpro_get_job_section",
+    "Get one Simpro job section by ID (name, display order). Use simpro_list_job_sections to find section IDs.",
+    () => ({ jobId: idSchema, sectionId: idSchema, raw: rawFlagSchema }),
+    () => async ({ jobId, sectionId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.jobSectionById(jobId, sectionId));
+        const resp = await ctx.client.get<{ ID?: number; Name?: string }>(path);
+        return formatRecord(`Job #${jobId} section #${resp.ID ?? sectionId}: ${resp.Name ?? "(unnamed)"}`, resp, resp, raw === true);
+      }),
+  );
+
+  // ---- list section cost centres ----
+  registerTool(
+    server,
+    "simpro_list_section_cost_centres",
+    "List the cost centres (line items) attached to one job section.",
+    () => ({ jobId: idSchema, sectionId: idSchema, raw: rawFlagSchema }),
+    () => async ({ jobId, sectionId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.jobSectionCostCenters(jobId, sectionId));
+        const resp = await ctx.client.get<unknown>(path);
+        const items = extractList(resp) as { ID?: number; Name?: string }[];
+        return formatList(items, undefined, 1, items.length || 1,
+          (c) => `#${c.ID ?? "?"} ${c.Name ?? "(unnamed)"}`, resp, raw === true);
+      }),
+  );
+
+  // ---- get section cost centre ----
+  registerTool(
+    server,
+    "simpro_get_section_cost_centre",
+    "Get one cost centre (line item) on a job section, including totals and claim fields.",
+    () => ({ jobId: idSchema, sectionId: idSchema, costCentreId: idSchema, raw: rawFlagSchema }),
+    () => async ({ jobId, sectionId, costCentreId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.jobSectionCostCenterById(jobId, sectionId, costCentreId));
+        const resp = await ctx.client.get<{ ID?: number; Name?: string }>(path);
+        return formatRecord(`Section cost centre #${resp.ID ?? costCentreId}: ${resp.Name ?? "(unnamed)"}`, resp, resp, raw === true);
       }),
   );
 }
