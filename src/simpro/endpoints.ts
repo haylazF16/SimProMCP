@@ -42,11 +42,15 @@ export const ENDPOINTS = {
   jobs: "/jobs/",
   jobById: (id: string | number) => `/jobs/${encodeURIComponent(String(id))}`,
   jobNotes: (jobId: string | number) => `/jobs/${encodeURIComponent(String(jobId))}/notes/`,
+  jobNoteById: (jobId: string | number, noteId: string | number) =>
+    `/jobs/${encodeURIComponent(String(jobId))}/notes/${encodeURIComponent(String(noteId))}`,
   jobSections: (jobId: string | number) => `/jobs/${encodeURIComponent(String(jobId))}/sections/`,
   jobSectionById: (jobId: string | number, sectionId: string | number) =>
     `/jobs/${encodeURIComponent(String(jobId))}/sections/${encodeURIComponent(String(sectionId))}`,
   jobSectionCostCenters: (jobId: string | number, sectionId: string | number) =>
     `/jobs/${encodeURIComponent(String(jobId))}/sections/${encodeURIComponent(String(sectionId))}/costCenters/`,
+  jobSectionCostCenterById: (jobId: string | number, sectionId: string | number, ccId: string | number) =>
+    `/jobs/${encodeURIComponent(String(jobId))}/sections/${encodeURIComponent(String(sectionId))}/costCenters/${encodeURIComponent(String(ccId))}`,
 
   quotes: "/quotes/",
   quoteById: (id: string | number) => `/quotes/${encodeURIComponent(String(id))}`,
@@ -83,6 +87,10 @@ export const ENDPOINTS = {
   /** Supplier-invoice (vendor receipt) line items live under the parent order. */
   vendorReceiptItems: (orderId: string | number, receiptId: string | number) =>
     `/vendorOrders/${encodeURIComponent(String(orderId))}/receipts/${encodeURIComponent(String(receiptId))}/catalogs/`,
+  vendorOrderReceipts: (orderId: string | number) =>
+    `/vendorOrders/${encodeURIComponent(String(orderId))}/receipts/`,
+  vendorReceiptCatalogById: (orderId: string | number, receiptId: string | number, catalogId: string | number) =>
+    `/vendorOrders/${encodeURIComponent(String(orderId))}/receipts/${encodeURIComponent(String(receiptId))}/catalogs/${encodeURIComponent(String(catalogId))}`,
 
   // Parts / inventory catalog
   catalogs: "/catalogs/",
@@ -102,20 +110,26 @@ export const ENDPOINTS = {
 
   // Scheduling
   schedules: "/schedules/",
+  scheduleById: (id: string | number) => `/schedules/${encodeURIComponent(String(id))}`,
   timesheets: "/timesheets/",
+  timesheetByUid: (uid: string) => `/timesheets/${encodeURIComponent(uid)}`,
 
   // Financials
   customerPayments: "/customerPayments/",
+  customerPaymentById: (id: string | number) => `/customerPayments/${encodeURIComponent(String(id))}`,
   creditNotes: "/creditNotes/",
   creditNoteById: (id: string | number) => `/creditNotes/${encodeURIComponent(String(id))}`,
   recurringInvoices: "/recurringInvoices/",
+  recurringInvoiceById: (id: string | number) => `/recurringInvoices/${encodeURIComponent(String(id))}`,
   recurringJobs: "/recurringJobs/",
   recurringJobById: (id: string | number) => `/recurringJobs/${encodeURIComponent(String(id))}`,
 
   // Discovery / lookup endpoints
   // VERIFIED working against goldmanplumbingservices.simprosuite.com (v26.2.3, AU):
   staff: "/staff/",
+  staffById: (id: string | number) => `/staff/${encodeURIComponent(String(id))}`,
   costCentres: "/setup/accounts/costCenters/",
+  costCentreById: (id: string | number) => `/setup/accounts/costCenters/${encodeURIComponent(String(id))}`,
   // NOTE: this tenant does NOT expose dedicated /setup/.../statuses or /types
   // endpoints. The corresponding discovery tools sample existing jobs/quotes
   // instead. If your tenant exposes them, change these paths and update the
