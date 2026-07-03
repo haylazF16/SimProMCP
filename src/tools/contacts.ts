@@ -226,8 +226,8 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
           summary: `Update contact #${args.contactId}`,
         });
         if (blocked) return blocked;
-        await ctx.client.patch(path, payload);
-        return textResponse(`Updated contact #${args.contactId}. Changed fields: ${Object.keys(payload).join(", ")}.`);
+        const resp = await ctx.client.patch<SimproContact>(path, payload);
+        return formatRecord(`Updated contact #${args.contactId}.`, resp, resp, true);
       }),
   );
 }

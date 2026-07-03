@@ -119,4 +119,18 @@ describe("simpro_update_contact", () => {
     expect(r.isError).toBe(true);
     expect(r.text).toContain("No fields to update");
   });
+
+  it("blocks when write tools disabled", async () => {
+    const { ctx, spy } = makeCtx({ write: false });
+    const r = await callTool(ctx, "simpro_update_contact", { confirm: true, contactId: 321, email: "a@b.co" });
+    expect(spy.patches).toHaveLength(0);
+    expect(r.text).toContain("Write tools are disabled");
+  });
+
+  it("dry-run echoes without sending", async () => {
+    const { ctx, spy } = makeCtx({ dryRun: true });
+    const r = await callTool(ctx, "simpro_update_contact", { confirm: true, contactId: 321, email: "a@b.co" });
+    expect(spy.patches).toHaveLength(0);
+    expect(r.text).toContain("DRY RUN");
+  });
 });
