@@ -147,3 +147,31 @@ describe("simpro_update_stock_take", () => {
     expect(r.text).toContain("DRY RUN");
   });
 });
+
+describe("simpro_update_catalog_item", () => {
+  it("PATCHes mapped payload to /catalogs/{id}", async () => {
+    const { ctx, spy } = makeCtx();
+    const r = await callTool(ctx, "simpro_update_catalog_item", {
+      confirm: true, catalogItemId: 900, name: "15mm copper pipe", partNo: "CU-15",
+    });
+    expect(r.isError).toBe(false);
+    expect(spy.patches[0].path).toBe("/api/v1.0/companies/4/catalogs/900");
+    expect(spy.patches[0].payload).toEqual({ Name: "15mm copper pipe", PartNo: "CU-15" });
+  });
+
+  it("rejects an empty update", async () => {
+    const { ctx } = makeCtx();
+    const r = await callTool(ctx, "simpro_update_catalog_item", { confirm: true, catalogItemId: 900 });
+    expect(r.isError).toBe(true);
+    expect(r.text).toContain("No fields to update");
+  });
+
+  it("blocks when writes disabled", async () => {
+    const { ctx, spy } = makeCtx({ write: false });
+    const r = await callTool(ctx, "simpro_update_catalog_item", {
+      confirm: true, catalogItemId: 900, name: "X",
+    });
+    expect(spy.patches).toHaveLength(0);
+    expect(r.text).toContain("Write tools are disabled");
+  });
+});

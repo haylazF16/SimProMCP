@@ -403,4 +403,40 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
         return formatRecord(`Updated stock take #${args.stockTakeId}.`, resp, resp, true);
       }),
   );
+
+  // ---- update catalog item ----
+  registerTool(
+    server,
+    "simpro_update_catalog_item",
+    "Update a Simpro catalog (parts) item — e.g. rename, change part number, archive. Partial update; requires confirm=true.",
+    () => (
+    {
+      confirm: confirmSchema,
+      catalogItemId: idSchema,
+      name: z.string().optional(),
+      partNo: z.string().optional().describe("Part number / SKU."),
+      archived: z.boolean().optional(),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? pruneEmpty({
+          Name: args.name,
+          PartNo: args.partNo,
+          Archived: args.archived,
+        });
+        if (Object.keys(payload).length === 0) {
+          return textResponse("No fields to update — provide at least one field or rawPayload.", true);
+        }
+        const path = ctx.client.companyPath(ENDPOINTS.catalogById(args.catalogItemId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "PATCH", path, payload,
+          summary: `Update catalog item #${args.catalogItemId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.patch<{ ID?: number }>(path, payload);
+        return formatRecord(`Updated catalog item #${args.catalogItemId}.`, resp, resp, true);
+      }),
+  );
 }
