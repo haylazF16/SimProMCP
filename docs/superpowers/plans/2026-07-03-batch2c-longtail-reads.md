@@ -314,7 +314,7 @@ describe("tasks/staff/cost-centre reads", () => {
   });
 
   it("simpro_get_staff_member GETs /staff/{id}", async () => {
-    const { ctx, spy } = makeCtx({ ID: 3, Name: "Sinan" });
+    const { ctx, spy } = makeCtx({ ID: 3, GivenName: "Sinan", FamilyName: "K" });
     const r = await callTool(registerTaskTools, ctx, "simpro_get_staff_member", { staffId: 3 });
     expect(r.isError).toBe(false);
     expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/staff/3");
@@ -379,8 +379,9 @@ At the end of `registerTaskTools` in `src/tools/tasks.ts` (check imports: needs 
     () => async ({ staffId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.staffById(staffId));
-        const resp = await ctx.client.get<{ ID?: number; Name?: string }>(path);
-        return formatRecord(`Staff #${resp.ID ?? staffId}: ${resp.Name ?? "(unnamed)"}`, resp, resp, raw === true);
+        const resp = await ctx.client.get<{ ID?: number; GivenName?: string; FamilyName?: string }>(path);
+        const name = [resp.GivenName, resp.FamilyName].filter(Boolean).join(" ") || "(unnamed)";
+        return formatRecord(`Staff #${resp.ID ?? staffId}: ${name}`, resp, resp, raw === true);
       }),
   );
 
