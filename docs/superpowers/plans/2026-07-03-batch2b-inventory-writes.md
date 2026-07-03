@@ -199,8 +199,8 @@ In `src/tools/inventory.ts`, extend imports (mirror contacts.ts): add `writeGuar
           summary: `Update storage device #${args.storageDeviceId}`,
         });
         if (blocked) return blocked;
-        await ctx.client.patch(path, payload);
-        return textResponse(`Updated storage device #${args.storageDeviceId}. Changed fields: ${Object.keys(payload).join(", ")}.`);
+        const resp = await ctx.client.patch<{ ID?: number }>(path, payload);
+        return formatRecord(`Updated storage device #${args.storageDeviceId}.`, resp, resp, true);
       }),
   );
 ```
@@ -329,8 +329,8 @@ At the end of `registerInventoryTools`:
           summary: `Update stock take #${args.stockTakeId}`,
         });
         if (blocked) return blocked;
-        await ctx.client.patch(path, payload);
-        return textResponse(`Updated stock take #${args.stockTakeId}.`);
+        const resp = await ctx.client.patch<{ ID?: number }>(path, payload);
+        return formatRecord(`Updated stock take #${args.stockTakeId}.`, resp, resp, true);
       }),
   );
 ```
@@ -430,8 +430,8 @@ At the end of `registerInventoryTools`:
           summary: `Update catalog item #${args.catalogItemId}`,
         });
         if (blocked) return blocked;
-        await ctx.client.patch(path, payload);
-        return textResponse(`Updated catalog item #${args.catalogItemId}. Changed fields: ${Object.keys(payload).join(", ")}.`);
+        const resp = await ctx.client.patch<{ ID?: number }>(path, payload);
+        return formatRecord(`Updated catalog item #${args.catalogItemId}.`, resp, resp, true);
       }),
   );
 ```

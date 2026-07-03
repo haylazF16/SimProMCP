@@ -146,6 +146,20 @@ describe("simpro_update_contact", () => {
     expect(r.isError).toBe(true);
     expect(r.text).toContain("No fields to update");
   });
+
+  it("blocks when write tools disabled", async () => {
+    const { ctx, spy } = makeCtx({ write: false });
+    const r = await callTool(ctx, "simpro_update_contact", { confirm: true, contactId: 321, email: "a@b.c" });
+    expect(spy.patches).toHaveLength(0);
+    expect(r.text).toContain("Write tools are disabled");
+  });
+
+  it("dry-run echoes without sending", async () => {
+    const { ctx, spy } = makeCtx({ dryRun: true });
+    const r = await callTool(ctx, "simpro_update_contact", { confirm: true, contactId: 321, email: "a@b.c" });
+    expect(spy.patches).toHaveLength(0);
+    expect(r.text).toContain("DRY RUN");
+  });
 });
 ```
 
@@ -244,8 +258,8 @@ import { pruneEmpty } from "../utils/sanitise.js";
           summary: `Update contact #${args.contactId}`,
         });
         if (blocked) return blocked;
-        await ctx.client.patch(path, payload);
-        return textResponse(`Updated contact #${args.contactId}. Changed fields: ${Object.keys(payload).join(", ")}.`);
+        const resp = await ctx.client.patch<SimproContact>(path, payload);
+        return formatRecord(`Updated contact #${args.contactId}.`, resp, resp, true);
       }),
   );
 ```
@@ -254,7 +268,7 @@ import { pruneEmpty } from "../utils/sanitise.js";
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/tools/crmWrites.test.ts`
-Expected: PASS (7 tests).
+Expected: PASS (9 tests).
 
 - [ ] **Step 5: Typecheck + full suite**
 
@@ -326,7 +340,7 @@ describe("simpro_update_lead", () => {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `npx vitest run tests/tools/crmWrites.test.ts`
-Expected: the 4 new tests FAIL (tool not found); the 7 contact tests still PASS.
+Expected: the 4 new tests FAIL (tool not found); the 9 contact tests still PASS.
 
 - [ ] **Step 3: Implement the two lead tools**
 
@@ -400,8 +414,8 @@ At the end of `registerContactTools` in `src/tools/contacts.ts`, after the conta
           summary: `Update lead #${args.leadId}`,
         });
         if (blocked) return blocked;
-        await ctx.client.patch(path, payload);
-        return textResponse(`Updated lead #${args.leadId}. Changed fields: ${Object.keys(payload).join(", ")}.`);
+        const resp = await ctx.client.patch<SimproLead>(path, payload);
+        return formatRecord(`Updated lead #${args.leadId}.`, resp, resp, true);
       }),
   );
 ```
@@ -409,7 +423,7 @@ At the end of `registerContactTools` in `src/tools/contacts.ts`, after the conta
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `npx vitest run tests/tools/crmWrites.test.ts`
-Expected: PASS (11 tests).
+Expected: PASS (13 tests).
 
 - [ ] **Step 5: Typecheck + full suite**
 
