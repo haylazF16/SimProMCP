@@ -163,8 +163,9 @@ export function registerTaskTools(server: McpServer, ctx: ToolCtx) {
     () => async ({ staffId, raw }) =>
       safeRun(async () => {
         const path = ctx.client.companyPath(ENDPOINTS.staffById(staffId));
-        const resp = await ctx.client.get<{ ID?: number; Name?: string }>(path);
-        return formatRecord(`Staff #${resp.ID ?? staffId}: ${resp.Name ?? "(unnamed)"}`, resp, resp, raw === true);
+        const resp = await ctx.client.get<{ ID?: number; GivenName?: string; FamilyName?: string }>(path);
+        const name = [resp.GivenName, resp.FamilyName].filter(Boolean).join(" ") || "(unnamed)";
+        return formatRecord(`Staff #${resp.ID ?? staffId}: ${name}`, resp, resp, raw === true);
       }),
   );
 

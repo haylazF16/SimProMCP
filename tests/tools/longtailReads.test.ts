@@ -112,7 +112,7 @@ describe("tasks/staff/cost-centre reads", () => {
   });
 
   it("simpro_get_staff_member GETs /staff/{id}", async () => {
-    const { ctx, spy } = makeCtx({ ID: 3, Name: "Sinan" });
+    const { ctx, spy } = makeCtx({ ID: 3, GivenName: "Sinan", FamilyName: "K" });
     const r = await callTool(registerTaskTools, ctx, "simpro_get_staff_member", { staffId: 3 });
     expect(r.isError).toBe(false);
     expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/staff/3");
