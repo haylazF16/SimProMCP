@@ -350,4 +350,57 @@ export function registerInventoryTools(server: McpServer, ctx: ToolCtx) {
         return formatRecord(`Updated storage device #${args.storageDeviceId}.`, resp, resp, true);
       }),
   );
+
+  // ---- create stock take ----
+  registerTool(
+    server,
+    "simpro_create_stock_take",
+    "Start a new stock take for a storage device in Simpro. Requires confirm=true. Find the device with simpro_search_storage_devices. Tenant-specific fields go in rawPayload.",
+    () => (
+    {
+      confirm: confirmSchema,
+      storageDeviceId: idSchema.describe("Storage device (warehouse/vehicle) to count."),
+      rawPayload: rawPayloadSchema,
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload ?? { StorageDevice: args.storageDeviceId };
+        const path = ctx.client.companyPath(ENDPOINTS.stockTakes);
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "POST", path, payload,
+          summary: `Create stock take for storage device #${args.storageDeviceId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.post<{ ID?: number }>(path, payload);
+        return formatRecord(`Created stock take #${resp.ID ?? "?"}.`, resp, resp, true);
+      }),
+  );
+
+  // ---- update stock take ----
+  registerTool(
+    server,
+    "simpro_update_stock_take",
+    "Update a Simpro stock take via rawPayload (e.g. {\"Status\":\"Complete\"} — stock-take fields are tenant-specific, check your Simpro API docs). Requires confirm=true.",
+    () => (
+    {
+      confirm: confirmSchema,
+      stockTakeId: idSchema,
+      rawPayload: z.record(z.any())
+        .describe("Raw Simpro PATCH payload for the stock take — exact JSON Simpro expects."),
+    }
+    ),
+    () => async (args) =>
+      safeRun(async () => {
+        const payload = args.rawPayload;
+        const path = ctx.client.companyPath(ENDPOINTS.stockTakeById(args.stockTakeId));
+        const blocked = writeGuard(ctx, {
+          confirm: args.confirm, method: "PATCH", path, payload,
+          summary: `Update stock take #${args.stockTakeId}`,
+        });
+        if (blocked) return blocked;
+        const resp = await ctx.client.patch<{ ID?: number }>(path, payload);
+        return formatRecord(`Updated stock take #${args.stockTakeId}.`, resp, resp, true);
+      }),
+  );
 }

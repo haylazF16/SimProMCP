@@ -107,3 +107,43 @@ describe("simpro_update_storage_device", () => {
     expect(r.text).toContain("No fields to update");
   });
 });
+
+describe("simpro_create_stock_take", () => {
+  it("POSTs mapped payload when confirmed", async () => {
+    const { ctx, spy } = makeCtx();
+    const r = await callTool(ctx, "simpro_create_stock_take", {
+      confirm: true, storageDeviceId: 8,
+    });
+    expect(r.isError).toBe(false);
+    expect(spy.posts[0].path).toBe("/api/v1.0/companies/4/stockTakes/");
+    expect(spy.posts[0].payload).toEqual({ StorageDevice: 8 });
+  });
+
+  it("blocks without confirm", async () => {
+    const { ctx, spy } = makeCtx();
+    const r = await callTool(ctx, "simpro_create_stock_take", { confirm: false, storageDeviceId: 8 });
+    expect(spy.posts).toHaveLength(0);
+    expect(r.text).toContain("Confirmation required");
+  });
+});
+
+describe("simpro_update_stock_take", () => {
+  it("PATCHes rawPayload to /stockTakes/{id}", async () => {
+    const { ctx, spy } = makeCtx();
+    const r = await callTool(ctx, "simpro_update_stock_take", {
+      confirm: true, stockTakeId: 5, rawPayload: { Status: "Complete" },
+    });
+    expect(r.isError).toBe(false);
+    expect(spy.patches[0].path).toBe("/api/v1.0/companies/4/stockTakes/5");
+    expect(spy.patches[0].payload).toEqual({ Status: "Complete" });
+  });
+
+  it("dry-run echoes without sending", async () => {
+    const { ctx, spy } = makeCtx({ dryRun: true });
+    const r = await callTool(ctx, "simpro_update_stock_take", {
+      confirm: true, stockTakeId: 5, rawPayload: { Status: "Complete" },
+    });
+    expect(spy.patches).toHaveLength(0);
+    expect(r.text).toContain("DRY RUN");
+  });
+});
