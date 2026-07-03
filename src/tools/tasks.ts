@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ENDPOINTS } from "../simpro/endpoints.js";
+import { paginationQuery } from "../utils/pagination.js";
 import { idSchema, rawFlagSchema, rawPayloadSchema, confirmSchema, isoDateSchema } from "../utils/schemas.js";
 import { pruneEmpty } from "../utils/sanitise.js";
 import { extractList, formatList, formatRecord, safeRun, textResponse, ToolCtx, writeGuard, registerTool } from "./_shared.js";
@@ -119,6 +120,65 @@ export function registerTaskTools(server: McpServer, ctx: ToolCtx) {
         const items = extractList(resp) as { ID?: number; Name?: string }[];
         return formatList(items, undefined, 1, items.length,
           (c) => `#${c.ID ?? "?"} ${c.Name ?? "(unnamed)"}`, resp, raw === true);
+      }),
+  );
+
+  // ---- get task ----
+  registerTool(
+    server,
+    "simpro_get_task",
+    "Get one Simpro task by ID (subject, assignee, due date, status). Use simpro_list_tasks to find IDs.",
+    () => ({ taskId: idSchema, raw: rawFlagSchema }),
+    () => async ({ taskId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.taskById(taskId));
+        const resp = await ctx.client.get<{ ID?: number; Subject?: string }>(path);
+        return formatRecord(`Task #${resp.ID ?? taskId}: ${resp.Subject ?? "(no subject)"}`, resp, resp, raw === true);
+      }),
+  );
+
+  // ---- list tasks ----
+  registerTool(
+    server,
+    "simpro_list_tasks",
+    "List Simpro tasks (paginated). Use simpro_get_task for one task's full detail.",
+    () => ({ page: z.number().int().min(1).optional(), pageSize: z.number().int().min(1).max(1000).optional(), raw: rawFlagSchema }),
+    () => async ({ page, pageSize, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.tasks);
+        const pg = paginationQuery(ctx.config, page, pageSize);
+        const resp = await ctx.client.get<unknown>(path, { ...pg.query });
+        const items = extractList(resp) as { ID?: number; Subject?: string }[];
+        return formatList(items, undefined, pg.page, pg.pageSize,
+          (t) => `#${t.ID ?? "?"} ${t.Subject ?? "(no subject)"}`, resp, raw === true);
+      }),
+  );
+
+  // ---- get staff member ----
+  registerTool(
+    server,
+    "simpro_get_staff_member",
+    "Get one Simpro staff member by ID (name, type). Use simpro_list_staff to find IDs.",
+    () => ({ staffId: idSchema, raw: rawFlagSchema }),
+    () => async ({ staffId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.staffById(staffId));
+        const resp = await ctx.client.get<{ ID?: number; Name?: string }>(path);
+        return formatRecord(`Staff #${resp.ID ?? staffId}: ${resp.Name ?? "(unnamed)"}`, resp, resp, raw === true);
+      }),
+  );
+
+  // ---- get cost centre ----
+  registerTool(
+    server,
+    "simpro_get_cost_centre",
+    "Get one Simpro cost centre (setup) by ID. Use simpro_list_cost_centres to find IDs.",
+    () => ({ costCentreId: idSchema, raw: rawFlagSchema }),
+    () => async ({ costCentreId, raw }) =>
+      safeRun(async () => {
+        const path = ctx.client.companyPath(ENDPOINTS.costCentreById(costCentreId));
+        const resp = await ctx.client.get<{ ID?: number; Name?: string }>(path);
+        return formatRecord(`Cost centre #${resp.ID ?? costCentreId}: ${resp.Name ?? "(unnamed)"}`, resp, resp, raw === true);
       }),
   );
 }

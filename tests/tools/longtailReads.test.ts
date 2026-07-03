@@ -94,3 +94,34 @@ describe("job-internal reads", () => {
     expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/jobs/10/sections/2/costCenters/7");
   });
 });
+
+describe("tasks/staff/cost-centre reads", () => {
+  it("simpro_list_tasks GETs /tasks/ with pagination", async () => {
+    const { ctx, spy } = makeCtx([{ ID: 1, Subject: "Chase certificate" }]);
+    const r = await callTool(registerTaskTools, ctx, "simpro_list_tasks", {});
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/tasks/");
+    expect(spy.gets[0].query).toMatchObject({ page: 1 });
+  });
+
+  it("simpro_get_task GETs /tasks/{id}", async () => {
+    const { ctx, spy } = makeCtx({ ID: 15, Subject: "Chase certificate" });
+    const r = await callTool(registerTaskTools, ctx, "simpro_get_task", { taskId: 15 });
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/tasks/15");
+  });
+
+  it("simpro_get_staff_member GETs /staff/{id}", async () => {
+    const { ctx, spy } = makeCtx({ ID: 3, Name: "Sinan" });
+    const r = await callTool(registerTaskTools, ctx, "simpro_get_staff_member", { staffId: 3 });
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/staff/3");
+  });
+
+  it("simpro_get_cost_centre GETs /setup/accounts/costCenters/{id}", async () => {
+    const { ctx, spy } = makeCtx({ ID: 12, Name: "Maintenance" });
+    const r = await callTool(registerTaskTools, ctx, "simpro_get_cost_centre", { costCentreId: 12 });
+    expect(r.isError).toBe(false);
+    expect(spy.gets[0].path).toBe("/api/v1.0/companies/4/setup/accounts/costCenters/12");
+  });
+});
