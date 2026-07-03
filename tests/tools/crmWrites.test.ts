@@ -145,7 +145,7 @@ describe("simpro_create_lead", () => {
     expect(spy.posts).toHaveLength(1);
     expect(spy.posts[0].path).toBe("/api/v1.0/companies/4/leads/");
     expect(spy.posts[0].payload).toEqual({
-      LeadName: "New bathroom fit-out", Customer: 55, Site: 9, Salesperson: 3,
+      Description: "New bathroom fit-out", Customer: { ID: 55 }, Site: { ID: 9 }, Salesperson: { ID: 3 },
     });
   });
 
@@ -165,7 +165,7 @@ describe("simpro_update_lead", () => {
     });
     expect(r.isError).toBe(false);
     expect(spy.patches[0].path).toBe("/api/v1.0/companies/4/leads/77");
-    expect(spy.patches[0].payload).toEqual({ LeadName: "Renamed lead" });
+    expect(spy.patches[0].payload).toEqual({ Description: "Renamed lead" });
   });
 
   it("rejects an empty update", async () => {

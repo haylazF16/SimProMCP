@@ -239,7 +239,7 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
     () => (
     {
       confirm: confirmSchema,
-      leadName: z.string().min(1).describe("Short name/description of the lead."),
+      leadName: z.string().min(1).describe("Short name/description of the lead (Simpro field: Description)."),
       customerId: idSchema.optional().describe("Simpro customer ID."),
       siteId: idSchema.optional().describe("Simpro site ID."),
       salespersonId: idSchema.optional().describe("Staff ID of the salesperson."),
@@ -249,10 +249,10 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
     () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
-          LeadName: args.leadName,
-          Customer: args.customerId,
-          Site: args.siteId,
-          Salesperson: args.salespersonId,
+          Description: args.leadName,
+          Customer: args.customerId != null ? { ID: args.customerId } : undefined,
+          Site: args.siteId != null ? { ID: args.siteId } : undefined,
+          Salesperson: args.salespersonId != null ? { ID: args.salespersonId } : undefined,
         });
         const path = ctx.client.companyPath(ENDPOINTS.leads);
         const blocked = writeGuard(ctx, {
@@ -284,10 +284,10 @@ export function registerContactTools(server: McpServer, ctx: ToolCtx) {
     () => async (args) =>
       safeRun(async () => {
         const payload = args.rawPayload ?? pruneEmpty({
-          LeadName: args.leadName,
-          Customer: args.customerId,
-          Site: args.siteId,
-          Salesperson: args.salespersonId,
+          Description: args.leadName,
+          Customer: args.customerId != null ? { ID: args.customerId } : undefined,
+          Site: args.siteId != null ? { ID: args.siteId } : undefined,
+          Salesperson: args.salespersonId != null ? { ID: args.salespersonId } : undefined,
         });
         if (Object.keys(payload).length === 0) {
           return textResponse("No fields to update — provide at least one field or rawPayload.", true);
